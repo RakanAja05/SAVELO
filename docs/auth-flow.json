@@ -1,0 +1,566 @@
+{
+  "info": {
+    "name": "Auth - Register with OTP SAVELO",
+    "_postman_id": "register-otp-collection",
+    "description": "Collection untuk testing flow registrasi dengan OTP 6 angka.\n\nFlow:\n1. Jalankan 'Step 1 - Send OTP' → cek email untuk OTP\n2. Jalankan 'Step 2 - Verify OTP' → masukkan OTP yang diterima\n\nVariabel `base_url` default ke http://localhost:8000/api",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api/auth",
+      "type": "string"
+    },
+    {
+      "key": "test_email",
+      "value": "testuser@example.com",
+      "type": "string"
+    },
+    {
+      "key": "otp_code",
+      "value": "",
+      "type": "string",
+      "description": "Isi manual setelah dapat OTP dari email, atau set otomatis jika pakai script"
+    },
+    {
+      "key": "login_email",
+      "value": "testuser@example.com",
+      "type": "string"
+    },
+    {
+      "key": "login_password",
+      "value": "Password1",
+      "type": "string"
+    },
+    {
+      "key": "forgot_email",
+      "value": "testuser@example.com",
+      "type": "string"
+    },
+    {
+      "key": "forgot_otp_code",
+      "value": "",
+      "type": "string",
+      "description": "Isi manual setelah dapat OTP reset password dari email"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string",
+      "description": "Diisi otomatis setelah verify OTP berhasil"
+    }
+  ],
+  "item": [
+    {
+      "name": "Login",
+      "item": [
+        {
+          "name": "Login - Email Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('token');",
+                  "    pm.expect(json.data.token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('Token type is Bearer', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.token_type).to.eql('Bearer');",
+                  "});",
+                  "",
+                  "// Simpan token ke collection variable",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) {",
+                  "    pm.collectionVariables.set('auth_token', json.data.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{login_email}}\",\n  \"password\": \"{{login_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/login",
+              "host": ["{{base_url}}"],
+              "path": ["login"]
+            },
+            "description": "Login dengan email dan password. Jika berhasil, token dikembalikan dan disimpan ke variable auth_token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Register Flow",
+      "item": [
+        {
+          "name": "Step 1 - Send OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has success message', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.include('OTP');",
+                  "});",
+                  "",
+                  "pm.test('Email in response matches input', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.email).to.eql(pm.collectionVariables.get('test_email'));",
+                  "});",
+                  "",
+                  "// Simpan email ke variable untuk step berikutnya",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.email) {",
+                  "    pm.collectionVariables.set('test_email', json.data.email);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"{{test_email}}\",\n  \"password\": \"Password1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/register",
+              "host": ["{{base_url}}"],
+              "path": ["register"]
+            },
+            "description": "Kirim data registrasi. Sistem akan mengirim OTP 6 angka ke email.\n\nSetelah request ini berhasil:\n- Cek email untuk mendapatkan kode OTP\n- Isi variabel `otp_code` dengan kode tersebut\n- Lanjut ke Step 2"
+          },
+          "response": [
+            {
+              "name": "200 - OTP Terkirim",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Password1\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register" }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"message\": \"OTP telah dikirim ke email kamu.\",\n  \"data\": {\n    \"email\": \"testuser@example.com\"\n  }\n}"
+            },
+            {
+              "name": "422 - Validasi Gagal (email sudah terdaftar)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"existing@example.com\",\n  \"password\": \"Password1\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register" }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed.\",\n  \"errors\": {\n    \"email\": [\"The email has already been taken.\"]\n  }\n}"
+            },
+            {
+              "name": "422 - Password Lemah",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"testuser@example.com\",\n  \"password\": \"weakpass\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register" }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed.\",\n  \"errors\": {\n    \"password\": [\"The password field format is invalid.\"]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Step 2 - Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('token');",
+                  "    pm.expect(json.data.token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('Token type is Bearer', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.token_type).to.eql('Bearer');",
+                  "});",
+                  "",
+                  "pm.test('User data returned', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.user).to.have.property('email');",
+                  "});",
+                  "",
+                  "// Simpan token ke collection variable",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) {",
+                  "    pm.collectionVariables.set('auth_token', json.data.token);",
+                  "    console.log('Token tersimpan:', json.data.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"otp\": \"{{otp_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/register/verify",
+              "host": ["{{base_url}}"],
+              "path": ["register", "verify"]
+            },
+            "description": "Verifikasi OTP yang diterima via email.\n\nJika berhasil, akun akan dibuat dan token dikembalikan.\nToken akan otomatis tersimpan ke variabel `auth_token`."
+          },
+          "response": [
+            {
+              "name": "201 - Register Berhasil",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"otp\": \"123456\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register/verify" }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Register berhasil.\",\n  \"data\": {\n    \"user\": {\n      \"id\": 1,\n      \"name\": \"Test User\",\n      \"email\": \"testuser@example.com\",\n      \"created_at\": \"2025-01-01T00:00:00.000000Z\",\n      \"updated_at\": \"2025-01-01T00:00:00.000000Z\"\n    },\n    \"token\": \"1|abc123xyz...\",\n    \"token_type\": \"Bearer\"\n  }\n}"
+            },
+            {
+              "name": "422 - OTP Tidak Valid",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"otp\": \"000000\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register/verify" }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"message\": \"OTP tidak valid.\",\n  \"errors\": null\n}"
+            },
+            {
+              "name": "422 - OTP Kedaluwarsa",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"otp\": \"123456\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register/verify" }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"message\": \"OTP sudah kedaluwarsa.\",\n  \"errors\": null\n}"
+            },
+            {
+              "name": "422 - Format OTP Salah (bukan 6 digit)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"otp\": \"123\"\n}"
+                },
+                "url": { "raw": "{{base_url}}/register/verify" }
+              },
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Validation failed.\",\n  \"errors\": {\n    \"otp\": [\"The otp field must be 6 digits.\"]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Forgot Password Flow",
+      "item": [
+        {
+          "name": "Step 1 - Send OTP Reset Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has success message', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.include('OTP');",
+                  "});",
+                  "",
+                  "pm.test('Email in response matches input', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.email).to.eql(pm.collectionVariables.get('forgot_email'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{forgot_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/forgot-password",
+              "host": ["{{base_url}}"],
+              "path": ["forgot-password"]
+            },
+            "description": "Kirim OTP reset password ke email. Isi variable forgot_otp_code manual dari email sebelum lanjut step 2."
+          }
+        },
+        {
+          "name": "Step 2 - Reset Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has success message', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.include('Password');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{forgot_email}}\",\n  \"otp\": \"{{forgot_otp_code}}\",\n  \"password\": \"Password1\",\n  \"password_confirmation\": \"Password1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/forgot-password/reset",
+              "host": ["{{base_url}}"],
+              "path": ["forgot-password", "reset"]
+            },
+            "description": "Verifikasi OTP dan reset password. Password harus dikonfirmasi."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Edge Cases",
+      "item": [
+        {
+          "name": "Send OTP - Email Kosong",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"\",\n  \"password\": \"Password1\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/register",
+              "host": ["{{base_url}}"],
+              "path": ["register"]
+            },
+            "description": "Harus return 422 - email required"
+          }
+        },
+        {
+          "name": "Send OTP - Request Kedua (OTP Lama Terhapus)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"{{test_email}}\",\n  \"password\": \"Password1\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/register",
+              "host": ["{{base_url}}"],
+              "path": ["register"]
+            },
+            "description": "Kirim OTP lagi ke email yang sama — OTP lama harus dihapus dan diganti yang baru"
+          }
+        },
+        {
+          "name": "Verify OTP - Body Kosong",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/register/verify",
+              "host": ["{{base_url}}"],
+              "path": ["register", "verify"]
+            },
+            "description": "Harus return 422 - email & otp required"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -10,7 +10,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "google/apiclient": "*",
+        "kreait/firebase-php": "^8.2",
         "laravel/framework": "^13.7",
+        "laravel/sanctum": "^4.3",
+        "laravel/socialite": "*",
         "laravel/tinker": "^3.0"
     },
     "require-dev": {
