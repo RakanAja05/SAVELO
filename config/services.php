@@ -18,6 +18,7 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
+        'base_url' => 'https://places.googleapis.com/v1',
     ],
 
     'gemini' => [

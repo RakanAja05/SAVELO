@@ -1,0 +1,676 @@
+openapi: 3.0.3
+info:
+  title: Savelo API
+  version: 1.0.0
+  description: All public API endpoints for Savelo.
+servers:
+  - url: http://localhost:8000
+paths:
+  /api/auth/login:
+    post:
+      summary: Login
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSuccessResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+  /api/auth/register:
+    post:
+      summary: Register (send OTP)
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailOnlyResponse"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+  /api/auth/register/verify:
+    post:
+      summary: Verify OTP and create user
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpRequest"
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSuccessResponse"
+        "422":
+          description: Validation error or invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/auth/forgot-password:
+    post:
+      summary: Request password reset OTP
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailOnlyResponse"
+        "404":
+          description: Email not registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+  /api/auth/forgot-password/reset:
+    post:
+      summary: Reset password using OTP
+      tags:
+        - Auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiSuccess"
+        "404":
+          description: Email not registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Validation error or invalid OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/auth/google:
+    get:
+      summary: Google OAuth redirect
+      tags:
+        - Auth
+      security: []
+      responses:
+        "302":
+          description: Redirect to Google OAuth
+  /api/auth/google/callback:
+    get:
+      summary: Google OAuth callback
+      tags:
+        - Auth
+      security: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSuccessResponse"
+        "401":
+          description: OAuth failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/destinations:
+    get:
+      summary: List destinations by city
+      description: Returns destinations for a city, optionally filtered by category.
+      tags:
+        - Destinations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: city
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+          example: Yogyakarta
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [wisata, restoran, cafe, hotel, museum, taman, belanja, umkm, transit, lainnya]
+          example: wisata
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DestinationsIndexResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/destinations/map:
+    get:
+      summary: Discovery Map pins
+      description: Returns lightweight map pin data for a city.
+      tags:
+        - Destinations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: city
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+          example: Yogyakarta
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [umkm, iconic, heritage, hidden_gem, hotel, transit]
+          example: iconic
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapPinsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/destinations/{placeId}:
+    get:
+      summary: Get destination detail
+      description: Returns destination detail and cached metadata.
+      tags:
+        - Destinations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: placeId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: ChIJrTLr-GyuEmsRBfy61i59si0
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DestinationDetailResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ApiSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+        data:
+          nullable: true
+      required: [status, message]
+    ApiError:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+        error:
+          nullable: true
+      required: [status, message]
+    ValidationError:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          example: Validation failed.
+        error:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [status, message, error]
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          example: Secret123
+      required: [email, password]
+    RegisterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Budi Santoso
+        email:
+          type: string
+          format: email
+          example: budi@example.com
+        password:
+          type: string
+          example: Secret123
+      required: [name, email, password]
+    VerifyOtpRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: budi@example.com
+        otp:
+          type: string
+          example: "123456"
+      required: [email, otp]
+    ForgotPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+      required: [email]
+    ResetPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        otp:
+          type: string
+          example: "123456"
+        password:
+          type: string
+          example: Secret123
+        password_confirmation:
+          type: string
+          example: Secret123
+      required: [email, otp, password, password_confirmation]
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Budi Santoso
+        email:
+          type: string
+          format: email
+          example: budi@example.com
+        google_id:
+          type: string
+          nullable: true
+          example: "1234567890"
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, name, email]
+    AuthData:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+      required: [user, token, token_type]
+    AuthSuccessResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/AuthData"
+          required: [data]
+    EmailOnlyData:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+    EmailOnlyResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/EmailOnlyData"
+          required: [data]
+    Area:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        grid_lat:
+          type: integer
+          example: -380
+        grid_lng:
+          type: integer
+          example: 560
+      required: [id, grid_lat, grid_lng]
+    PriceRange:
+      type: object
+      properties:
+        min:
+          type: integer
+          nullable: true
+          example: 10000
+        max:
+          type: integer
+          nullable: true
+          example: 50000
+        label:
+          type: string
+          example: Rp10.000 - Rp50.000
+      required: [min, max, label]
+    DestinationSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        place_id:
+          type: string
+          example: ChIJrTLr-GyuEmsRBfy61i59si0
+        name:
+          type: string
+          example: Malioboro
+        slug:
+          type: string
+          example: malioboro
+        category:
+          type: string
+          example: wisata
+        city:
+          type: string
+          example: Yogyakarta
+        address:
+          type: string
+          nullable: true
+        lat:
+          type: number
+          format: float
+          example: -7.7927
+        lng:
+          type: number
+          format: float
+          example: 110.3657
+        rating:
+          type: number
+          format: float
+          nullable: true
+          example: 4.7
+        user_rating_count:
+          type: integer
+          nullable: true
+          example: 1234
+        price_tier:
+          type: string
+          example: mid
+        price_range:
+          $ref: "#/components/schemas/PriceRange"
+        photos:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required:
+        - id
+        - place_id
+        - name
+        - slug
+        - category
+        - city
+        - lat
+        - lng
+        - price_tier
+        - price_range
+        - photos
+    DestinationDetail:
+      allOf:
+        - $ref: "#/components/schemas/DestinationSummary"
+        - type: object
+          properties:
+            description:
+              type: string
+              nullable: true
+            opening_hours:
+              type: object
+              nullable: true
+              additionalProperties: true
+            phone:
+              type: string
+              nullable: true
+            whatsapp:
+              type: string
+              nullable: true
+            official_url:
+              type: string
+              nullable: true
+            ai_microstory:
+              type: string
+              nullable: true
+            cached_at:
+              type: string
+              format: date-time
+              nullable: true
+            detail_fetched_at:
+              type: string
+              format: date-time
+              nullable: true
+    MapPin:
+      type: object
+      properties:
+        place_id:
+          type: string
+          example: ChIJrTLr-GyuEmsRBfy61i59si0
+        map_category:
+          type: string
+          enum: [umkm, iconic, heritage, hidden_gem, hotel, transit]
+          example: iconic
+        pin_color:
+          type: string
+          example: "#2196F3"
+        lat:
+          type: number
+          format: float
+          example: -7.7927
+        lng:
+          type: number
+          format: float
+          example: 110.3657
+      required: [place_id, map_category, pin_color, lat, lng]
+    DestinationsIndexData:
+      type: object
+      properties:
+        from_cache:
+          type: boolean
+        stale:
+          type: boolean
+        area:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Area"
+        total:
+          type: integer
+          example: 20
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DestinationSummary"
+      required: [from_cache, stale, total, destinations]
+    DestinationsIndexResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/DestinationsIndexData"
+          required: [data]
+    DestinationDetailData:
+      type: object
+      properties:
+        from_cache:
+          type: boolean
+        stale:
+          type: boolean
+        destination:
+          $ref: "#/components/schemas/DestinationDetail"
+      required: [from_cache, stale, destination]
+    DestinationDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/DestinationDetailData"
+          required: [data]
+    MapPinsData:
+      type: object
+      properties:
+        from_cache:
+          type: boolean
+        total:
+          type: integer
+          example: 80
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/MapPin"
+      required: [from_cache, total, destinations]
+    MapPinsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/MapPinsData"
+          required: [data]

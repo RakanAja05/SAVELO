@@ -13,15 +13,20 @@ return new class extends Migration
     {
         Schema::create('destinations', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('area_id')->nullable()->constrained('areas')->nullOnDelete();
             $table->string('place_id')->unique();
             $table->string('name');
             $table->string('slug');
             $table->string('country_code', 2);
             $table->string('city');
+            $table->string('address')->nullable();
             $table->decimal('lat', 10, 7);
             $table->decimal('lng', 10, 7);
+            $table->decimal('rating', 3, 2)->nullable();
+            $table->unsignedInteger('user_rating_count')->nullable();
             $table->text('description')->nullable();
             $table->string('category');
+            $table->string('map_category')->nullable();
             $table->string('price_tier');
             $table->json('opening_hours')->nullable();
             $table->string('phone')->nullable();
@@ -32,6 +37,8 @@ return new class extends Migration
             $table->json('accessibility_flags')->nullable();
             $table->string('accessibility_source')->nullable();
             $table->timestamp('cached_at')->nullable();
+            $table->timestamp('detail_fetched_at')->nullable();
+            $table->softDeletes();
             $table->timestamps();
         });
     }

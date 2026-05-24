@@ -1,0 +1,181 @@
+{
+  "info": {
+    "name": "Savelo Destinations API",
+    "_postman_id": "b4e3b2f0-3f4a-4b22-9c2d-6c3cdd6f9f2a",
+    "description": "Collection to test destinations endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "List Destinations by City",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/destinations?city=Yogyakarta",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "destinations"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "Yogyakarta"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Destination Detail",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/destinations/{{place_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "destinations",
+            "{{place_id}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Map Pins by City",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/destinations/map?city=Yogyakarta",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "destinations",
+            "map"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "Yogyakarta"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Map Pins by Category",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/destinations/map?city=Yogyakarta&category={{map_category}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "destinations",
+            "map"
+          ],
+          "query": [
+            {
+              "key": "city",
+              "value": "Yogyakarta"
+            },
+            {
+              "key": "category",
+              "value": "{{map_category}}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "place_id",
+      "value": ""
+    },
+    {
+      "key": "map_category",
+      "value": "iconic"
+    }
+  ]
+}
