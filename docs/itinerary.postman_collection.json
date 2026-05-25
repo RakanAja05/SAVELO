@@ -1,0 +1,349 @@
+{
+  "info": {
+    "name": "Itinerary API - Savelo",
+    "_postman_id": "itinerary-collection",
+    "description": "Collection untuk testing endpoint itinerary generator berbasis Gemini.\n\nFlow:\n1. Jalankan 'Generate Itinerary'\n2. Cek response untuk request + itineraries\n\nVariabel base_url default ke http://localhost:8000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string",
+      "description": "Bearer token dari login/register"
+    },
+    {
+      "key": "origin",
+      "value": "Jakarta",
+      "type": "string"
+    },
+    {
+      "key": "destination_label",
+      "value": "Yogyakarta",
+      "type": "string"
+    },
+    {
+      "key": "duration_days",
+      "value": 3,
+      "type": "number"
+    },
+    {
+      "key": "num_people",
+      "value": 2,
+      "type": "number"
+    },
+    {
+      "key": "budget",
+      "value": 1500000,
+      "type": "number"
+    },
+    {
+      "key": "request_id",
+      "value": "",
+      "type": "string",
+      "description": "Diisi dari response generate untuk cek histori"
+    },
+    {
+      "key": "itinerary_id",
+      "value": "",
+      "type": "string",
+      "description": "Diisi dari response generate untuk cek detail"
+    },
+    {
+      "key": "day_number",
+      "value": 1,
+      "type": "number",
+      "description": "Hari ke berapa untuk detail rencana"
+    },
+    {
+      "key": "item_id",
+      "value": "",
+      "type": "string",
+      "description": "Diisi dengan itinerary item id yang akan diganti"
+    },
+    {
+      "key": "new_place_id",
+      "value": "",
+      "type": "string",
+      "description": "Place ID baru untuk mengganti item"
+    }
+  ],
+  "item": [
+    {
+      "name": "Generate Itinerary",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has request and itineraries', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('request');",
+              "    pm.expect(json.data).to.have.property('itineraries');",
+              "});",
+              "",
+              "// Simpan request_id & itinerary_id untuk request berikutnya",
+              "const json = pm.response.json();",
+              "if (json.data && json.data.request && json.data.request.id) {",
+              "    pm.collectionVariables.set('request_id', json.data.request.id);",
+              "}",
+              "if (json.data && json.data.itineraries && json.data.itineraries.length) {",
+              "    pm.collectionVariables.set('itinerary_id', json.data.itineraries[0].id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"origin\": \"{{origin}}\",\n  \"destination_label\": \"{{destination_label}}\",\n  \"duration_days\": {{duration_days}},\n  \"num_people\": {{num_people}},\n  \"budget\": {{budget}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/itineraries/generate",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "itineraries",
+            "generate"
+          ]
+        },
+        "description": "Generate itinerary menggunakan Gemini dan menyimpan hasil ke database."
+      }
+    },
+    {
+      "name": "Get Request History",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has request and itineraries', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('request');",
+              "    pm.expect(json.data).to.have.property('itineraries');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/itineraries/requests/{{request_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "itineraries",
+            "requests",
+            "{{request_id}}"
+          ]
+        },
+        "description": "Ambil histori itinerary berdasarkan request_id."
+      }
+    },
+    {
+      "name": "Get Itinerary Detail",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has itinerary', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('itinerary');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/itineraries/{{itinerary_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "itineraries",
+            "{{itinerary_id}}"
+          ]
+        },
+        "description": "Ambil detail itinerary berdasarkan itinerary_id."
+      }
+    },
+    {
+      "name": "Get Itinerary Day Plan",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has day plan', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('day');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/itineraries/{{itinerary_id}}/days/{{day_number}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "itineraries",
+            "{{itinerary_id}}",
+            "days",
+            "{{day_number}}"
+          ]
+        },
+        "description": "Ambil rencana itinerary untuk hari tertentu."
+      }
+    },
+    {
+      "name": "Update Itinerary Item",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has itinerary', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('itinerary');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"place_id\": \"{{new_place_id}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/itineraries/{{itinerary_id}}/{{item_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "itineraries",
+            "{{itinerary_id}}",
+            "{{item_id}}"
+          ]
+        },
+        "description": "Ganti satu item itinerary dengan place_id baru."
+      }
+    }
+  ]
+}

@@ -389,10 +389,26 @@ class PlaceCacheService
                 ]);
             }
 
-            $destination->update([
+            $microstory = $destination->ai_microstory;
+
+            if ($this->shouldRefreshMicrostory($destination)) {
+                $generated = $this->generateMicrostory($destination);
+
+                if ($generated !== null) {
+                    $microstory = $generated;
+                }
+            }
+
+            $updatePayload = [
                 'detail_fetched_at' => now(),
                 'area_id' => $area->id,
-            ]);
+            ];
+
+            if ($microstory !== null) {
+                $updatePayload['ai_microstory'] = $microstory;
+            }
+
+            $destination->update($updatePayload);
 
             return [
                 'from_cache' => false,
@@ -544,6 +560,46 @@ class PlaceCacheService
             'hotel' => 'premium',
             default => 'unknown',
         };
+    }
+
+    private function shouldRefreshMicrostory(Destination $destination): bool
+    {
+        if ($destination->ai_microstory === null) {
+            return true;
+        }
+
+        return ! $destination->isDetailFresh();
+    }
+
+    private function generateMicrostory(Destination $destination): ?string
+    {
+        $name = $destination->name;
+        $category = $destination->category;
+        $city = $destination->city;
+        $address = $destination->address ?? '';
+
+        $prompt = <<<PROMPT
+Kamu adalah copywriter pariwisata Indonesia.
+
+Buat microstory 2-3 kalimat dalam bahasa Indonesia tentang tempat berikut.
+Gaya: hangat, informatif, tanpa klaim yang tidak pasti. Jika informasinya terbatas, gunakan deskripsi umum yang aman.
+Hindari bullet list dan emoji.
+
+Nama: {$name}
+Kategori: {$category}
+Kota: {$city}
+Alamat: {$address}
+PROMPT;
+
+        $story = $this->gemini->generate($prompt);
+
+        if ($story === null) {
+            return null;
+        }
+
+        $story = trim($story);
+
+        return $story === '' ? null : $story;
     }
 
     private function parseBatchResponse(string $response, string $type): array

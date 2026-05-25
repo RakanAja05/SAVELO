@@ -297,12 +297,195 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/itineraries/generate:
+    post:
+      summary: Generate itinerary
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateItineraryRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItineraryGenerateResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+  /api/itineraries/requests/{requestId}:
+    get:
+      summary: Get itinerary request history
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItineraryRequestHistoryResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/itineraries/{itineraryId}:
+    get:
+      summary: Get itinerary detail
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itineraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItineraryDetailResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/itineraries/{itineraryId}/days/{dayNumber}:
+    get:
+      summary: Get itinerary day plan
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itineraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: dayNumber
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItineraryDayResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/itineraries/{itineraryId}/{itemId}:
+    patch:
+      summary: Replace one itinerary item
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itineraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateItineraryItemRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItineraryDetailResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      bearerFormat: Sanctum
   schemas:
     ApiSuccess:
       type: object
@@ -403,6 +586,32 @@ components:
           type: string
           example: Secret123
       required: [email, otp, password, password_confirmation]
+    GenerateItineraryRequest:
+      type: object
+      properties:
+        origin:
+          type: string
+          example: Jakarta
+        destination_label:
+          type: string
+          example: Surabaya
+        duration_days:
+          type: integer
+          example: 3
+        num_people:
+          type: integer
+          example: 2
+        budget:
+          type: number
+          example: 1500000
+      required: [origin, destination_label, duration_days, num_people, budget]
+    UpdateItineraryItemRequest:
+      type: object
+      properties:
+        place_id:
+          type: string
+          example: ChIJrTLr-GyuEmsRBfy61i59si0
+      required: [place_id]
     User:
       type: object
       properties:
@@ -509,6 +718,11 @@ components:
         category:
           type: string
           example: wisata
+        map_category:
+          type: string
+          nullable: true
+          enum: [umkm, iconic, heritage, hidden_gem, hotel, transit]
+          example: iconic
         city:
           type: string
           example: Yogyakarta
@@ -673,4 +887,193 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/MapPinsData"
+          required: [data]
+    ItineraryRequestData:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 30
+        origin:
+          type: string
+          example: Jakarta
+        destination_label:
+          type: string
+          example: Surabaya
+        duration_days:
+          type: integer
+          example: 3
+        num_people:
+          type: integer
+          example: 2
+        budget:
+          type: number
+          example: 1500000
+        status:
+          type: string
+          example: completed
+      required: [id, origin, destination_label, duration_days, num_people, budget, status]
+    ItinerarySummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        variant:
+          type: string
+          example: hemat
+        title:
+          type: string
+        total_estimate:
+          type: number
+        budget_percent:
+          type: integer
+        summary:
+          type: object
+          properties:
+            tags:
+              type: array
+              items:
+                type: string
+            eco_points:
+              type: integer
+            is_recommended:
+              type: boolean
+          required: [tags, eco_points, is_recommended]
+      required: [id, variant, title, total_estimate, budget_percent, summary]
+    ItineraryGenerateData:
+      type: object
+      properties:
+        request:
+          $ref: "#/components/schemas/ItineraryRequestData"
+        itineraries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItinerarySummary"
+      required: [request, itineraries]
+    ItineraryGenerateResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ItineraryGenerateData"
+          required: [data]
+    ItineraryRequestHistoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ItineraryGenerateData"
+          required: [data]
+    ItineraryLegData:
+      type: object
+      properties:
+        distance_km:
+          type: number
+        duration_min:
+          type: integer
+        transport_mode:
+          type: string
+      required: [distance_km, duration_min, transport_mode]
+    ItineraryItemData:
+      type: object
+      properties:
+        place_id:
+          type: string
+        name:
+          type: string
+          nullable: true
+        map_category:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        order_index:
+          type: integer
+        visit_time:
+          type: string
+        cost_estimate:
+          type: number
+        cost_label:
+          type: string
+        leg_to_next:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ItineraryLegData"
+      required: [place_id, order_index, visit_time, cost_estimate, cost_label]
+    ItineraryDayData:
+      type: object
+      properties:
+        day_number:
+          type: integer
+        estimated_cost:
+          type: number
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItineraryItemData"
+      required: [day_number, estimated_cost, items]
+    ItineraryDetailData:
+      type: object
+      properties:
+        request:
+          $ref: "#/components/schemas/ItineraryRequestData"
+        itinerary:
+          type: object
+          properties:
+            id:
+              type: integer
+            variant:
+              type: string
+            title:
+              type: string
+            total_estimate:
+              type: number
+            budget_percent:
+              type: integer
+            summary:
+              type: object
+              properties:
+                tags:
+                  type: array
+                  items:
+                    type: string
+                eco_points:
+                  type: integer
+                is_recommended:
+                  type: boolean
+              required: [tags, eco_points, is_recommended]
+            days:
+              type: array
+              items:
+                $ref: "#/components/schemas/ItineraryDayData"
+          required: [id, variant, title, total_estimate, budget_percent, summary, days]
+      required: [request, itinerary]
+    ItineraryDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ItineraryDetailData"
+          required: [data]
+    ItineraryDayDataResponse:
+      type: object
+      properties:
+        request:
+          $ref: "#/components/schemas/ItineraryRequestData"
+        itinerary:
+          $ref: "#/components/schemas/ItinerarySummary"
+        day:
+          $ref: "#/components/schemas/ItineraryDayData"
+      required: [request, itinerary, day]
+    ItineraryDayResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ItineraryDayDataResponse"
           required: [data]
