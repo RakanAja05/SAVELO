@@ -979,6 +979,8 @@ components:
     ItineraryItemData:
       type: object
       properties:
+        id:
+          type: integer
         place_id:
           type: string
         name:
@@ -1002,7 +1004,7 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ItineraryLegData"
-      required: [place_id, order_index, visit_time, cost_estimate, cost_label]
+      required: [id, place_id, order_index, visit_time, cost_estimate, cost_label]
     ItineraryDayData:
       type: object
       properties:

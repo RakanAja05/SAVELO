@@ -632,6 +632,7 @@ PROMPT;
                 $leg = $item->legDeparting;
 
                 return [
+                    'id' => $item->id,
                     'place_id' => $destination?->place_id,
                     'name' => $destination?->name,
                     'map_category' => $destination?->map_category,
