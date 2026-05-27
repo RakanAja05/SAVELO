@@ -558,7 +558,162 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-
+  /api/itineraries/{itineraryId}/items/{itemId}/check-location:
+    post:
+      summary: Cek apakah user dalam radius destinasi
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itineraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_lat:
+                  type: number
+                  format: float
+                  example: -7.6079
+                user_lng:
+                  type: number
+                  format: float
+                  example: 110.2038
+              required: [user_lat, user_lng]
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckLocationResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Item tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Destinasi tidak ditemukan / validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/itineraries/{itineraryId}/items/{itemId}/checkin-preview:
+    get:
+      summary: Preview check-in (transport modes & poin)
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itineraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckinPreviewResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Item tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Destinasi tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/itineraries/{itineraryId}/items/{itemId}/checkin:
+    patch:
+      summary: Check-in ke destinasi
+      tags:
+        - Itineraries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: itineraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transport_mode_id:
+                  type: integer
+                  example: 2
+              required: [transport_mode_id]
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckinResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Item / transport mode tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Item sudah completed / destinasi tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   securitySchemes:
     bearerAuth:
@@ -1258,4 +1413,112 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/FavoriteStoreData"
+          required: [data]
+    CheckLocationData:
+      type: object
+      properties:
+        is_within_radius:
+          type: boolean
+          example: true
+        distance_meters:
+          type: integer
+          example: 47
+      required: [is_within_radius, distance_meters]
+    CheckLocationResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CheckLocationData"
+          required: [data]
+    TransportModeData:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        mode:
+          type: string
+          example: bicycle
+        label:
+          type: string
+          example: Sepeda
+        eco_points_rate:
+          type: integer
+          example: 10
+        co2_per_km:
+          type: number
+          format: float
+          example: 0.0
+      required: [id, mode, label, eco_points_rate, co2_per_km]
+    CheckinPreviewData:
+      type: object
+      properties:
+        destination:
+          type: object
+          properties:
+            name:
+              type: string
+              example: Borobudur Temple
+            address:
+              type: string
+              nullable: true
+              example: Jl. Badrawati, Kw. Candi Borobudur
+            culture_points:
+              type: integer
+              example: 20
+          required: [name, culture_points]
+        leg_distance_km:
+          type: number
+          format: float
+          example: 3.5
+        transport_modes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransportModeData"
+      required: [destination, leg_distance_km, transport_modes]
+    CheckinPreviewResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CheckinPreviewData"
+          required: [data]
+    PointsEarnedData:
+      type: object
+      properties:
+        eco_points:
+          type: integer
+          example: 35
+        culture_points:
+          type: integer
+          example: 20
+        path_points:
+          type: integer
+          example: 55
+      required: [eco_points, culture_points, path_points]
+    CheckinData:
+      type: object
+      properties:
+        item:
+          $ref: "#/components/schemas/ItineraryItemData"
+        points_earned:
+          $ref: "#/components/schemas/PointsEarnedData"
+        user_total_path_points:
+          type: integer
+          example: 320
+        budget_snapshot:
+          nullable: true
+          type: object
+          additionalProperties: true
+      required: [item, points_earned, user_total_path_points]
+    CheckinResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CheckinData"
           required: [data]
