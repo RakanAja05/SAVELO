@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('destinations', function (Blueprint $table) {
@@ -26,8 +23,8 @@ return new class extends Migration
             $table->unsignedInteger('user_rating_count')->nullable();
             $table->text('description')->nullable();
             $table->string('category');
-            $table->unsignedInteger('culture_points')->default(0);
             $table->string('map_category')->nullable();
+            $table->smallInteger('culture_points')->unsigned()->default(0);
             $table->string('price_tier');
             $table->json('opening_hours')->nullable();
             $table->string('phone')->nullable();
@@ -44,9 +41,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('destinations');

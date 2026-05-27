@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('itinerary_items', function (Blueprint $table) {
@@ -20,14 +17,12 @@ return new class extends Migration
             $table->unsignedInteger('duration_minutes');
             $table->decimal('cost_estimate', 12, 2);
             $table->text('notes')->nullable();
+            $table->enum('status', ['pending', 'completed'])->default('pending')->index();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('itinerary_items');
