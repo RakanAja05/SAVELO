@@ -13,11 +13,13 @@ class Itinerary extends Model
         'variant',
         'title',
         'total_budget',
+        'total_cost',
         'status',
     ];
 
     protected $casts = [
         'total_budget' => 'decimal:2',
+        'total_cost' => 'decimal:2',
     ];
 
     public function request(): BelongsTo

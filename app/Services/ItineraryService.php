@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use App\Jobs\FetchItineraryLegsJob;
@@ -9,6 +11,7 @@ use App\Models\ItineraryDay;
 use App\Models\ItineraryItem;
 use App\Models\ItineraryLeg;
 use App\Models\ItineraryRequest;
+use App\Models\TransportMode;
 use App\Models\User;
 use App\Services\Gemini\GeminiService;
 use Illuminate\Support\Collection;
@@ -222,31 +225,69 @@ class ItineraryService
             ];
         }
 
-        $destination = Destination::where('place_id', $payload['place_id'])->first();
+        $destination = null;
+        $placeId = $payload['place_id'] ?? null;
 
-        if (! $destination) {
-            return [
-                'error' => 'Destinasi tidak ditemukan.',
-                'details' => ['place_id' => $payload['place_id']],
-                'code' => 422,
-            ];
+        if ($placeId !== null) {
+            $destination = Destination::where('place_id', $placeId)->first();
+
+            if (! $destination) {
+                return [
+                    'error' => 'Destinasi tidak ditemukan.',
+                    'details' => ['place_id' => $placeId],
+                    'code' => 422,
+                ];
+            }
         }
 
         $itinerary = $item->day->itinerary;
         $numPeople = (int) ($itinerary->request?->num_people ?? 1);
+        $previousCost = (float) $item->cost_estimate;
+        $previousStatus = (string) $item->status;
+        $statusProvided = array_key_exists('status', $payload);
+        $newStatus = $statusProvided ? (string) $payload['status'] : $previousStatus;
+        $newCost = $destination ? $this->estimateCost($destination, $numPeople) : $previousCost;
 
-        DB::transaction(function () use ($item, $destination, $numPeople) {
-            $item->update([
-                'destination_id' => $destination->id,
-                'cost_estimate' => $this->estimateCost($destination, $numPeople),
-            ]);
+        DB::transaction(function () use ($item, $destination, $previousCost, $previousStatus, $itinerary, $statusProvided, $newStatus, $newCost) {
+            $updates = [];
 
-            ItineraryLeg::where('from_item_id', $item->id)
-                ->orWhere('to_item_id', $item->id)
-                ->delete();
+            if ($destination) {
+                $updates['destination_id'] = $destination->id;
+                $updates['cost_estimate'] = $newCost;
+            }
 
-            $day = $item->day;
-            $day->update(['estimated_cost' => (float) $day->items()->sum('cost_estimate')]);
+            if ($statusProvided) {
+                $updates['status'] = $newStatus;
+            }
+
+            if ($updates !== []) {
+                $item->update($updates);
+            }
+
+            if ($destination) {
+                ItineraryLeg::where('from_item_id', $item->id)
+                    ->orWhere('to_item_id', $item->id)
+                    ->delete();
+
+                $day = $item->day;
+                $day->update(['estimated_cost' => (float) $day->items()->sum('cost_estimate')]);
+            }
+
+            $delta = 0.0;
+
+            if ($previousStatus === 'pending' && $newStatus === 'pending') {
+                $delta = $newCost - $previousCost;
+            } elseif ($previousStatus === 'pending' && $newStatus === 'completed') {
+                $delta = -$previousCost;
+            } elseif ($previousStatus === 'completed' && $newStatus === 'pending') {
+                $delta = $newCost;
+            }
+
+            if ($delta !== 0.0) {
+                $itinerary->update([
+                    'total_cost' => max(0, (float) $itinerary->total_cost + $delta),
+                ]);
+            }
         });
 
         $itinerary->loadMissing(['request', 'days.items.destination', 'days.items.legDeparting']);
@@ -258,6 +299,355 @@ class ItineraryService
                 'request' => $this->formatRequest($itinerary->request),
                 'itinerary' => $this->formatItinerary($itinerary, $itinerary->request, true),
             ],
+        ];
+    }
+
+    public function checkLocation(
+        User $user,
+        int $itineraryId,
+        int $itemId,
+        float $userLat,
+        float $userLng
+    ): array {
+        $resolved = $this->resolveItem($user, $itineraryId, $itemId);
+
+        if (is_array($resolved)) {
+            return $resolved;
+        }
+
+        $destination = $resolved->destination;
+
+        if (! $destination) {
+            return [
+                'error' => 'Destinasi tidak ditemukan.',
+                'code' => 422,
+            ];
+        }
+
+        $distance = $this->haversineDistance(
+            $userLat,
+            $userLng,
+            (float) $destination->lat,
+            (float) $destination->lng
+        );
+
+        return [
+            'data' => [
+                'is_within_radius' => $distance <= 100,
+                'distance_meters' => (int) round($distance),
+            ],
+        ];
+    }
+
+    public function checkinPreview(User $user, int $itineraryId, int $itemId): array
+    {
+        $resolved = $this->resolveItem($user, $itineraryId, $itemId);
+
+        if (is_array($resolved)) {
+            return $resolved;
+        }
+
+        $destination = $resolved->destination;
+
+        if (! $destination) {
+            return [
+                'error' => 'Destinasi tidak ditemukan.',
+                'code' => 422,
+            ];
+        }
+
+        $leg = ItineraryLeg::where('to_item_id', $resolved->id)->first();
+        $distanceKm = (float) ($leg?->distance_km ?? 0);
+
+        $transportModes = TransportMode::query()
+            ->orderByDesc('eco_points_rate')
+            ->get();
+
+        return [
+            'data' => [
+                'destination' => [
+                    'name' => $destination->name,
+                    'address' => $destination->address,
+                    'culture_points' => (int) ($destination->culture_points ?? 0),
+                ],
+                'leg_distance_km' => $distanceKm,
+                'transport_modes' => $transportModes->map(fn (TransportMode $mode) => [
+                    'id' => $mode->id,
+                    'mode' => $mode->mode,
+                    'label' => $mode->label,
+                    'eco_points_rate' => (int) $mode->eco_points_rate,
+                    'co2_per_km' => (float) $mode->co2_per_km,
+                ])->all(),
+            ],
+        ];
+    }
+
+    public function checkin(User $user, int $itineraryId, int $itemId, int $transportModeId): array
+    {
+        $resolved = $this->resolveItem($user, $itineraryId, $itemId);
+
+        if (is_array($resolved)) {
+            return $resolved;
+        }
+
+        if ($resolved->status === 'completed') {
+            return [
+                'error' => 'Item itinerary sudah selesai.',
+                'code' => 422,
+            ];
+        }
+
+        $destination = $resolved->destination;
+
+        if (! $destination) {
+            return [
+                'error' => 'Destinasi tidak ditemukan.',
+                'code' => 422,
+            ];
+        }
+
+        $transportMode = TransportMode::find($transportModeId);
+
+        if (! $transportMode) {
+            return [
+                'error' => 'Transport mode tidak ditemukan.',
+                'code' => 404,
+            ];
+        }
+
+        $leg = ItineraryLeg::where('to_item_id', $resolved->id)->first();
+        $distanceKm = (float) ($leg?->distance_km ?? 0);
+        $ecoPoints = (int) round($distanceKm * (int) $transportMode->eco_points_rate);
+        $culturePoints = (int) ($destination->culture_points ?? 0);
+        $pathPoints = $ecoPoints + $culturePoints;
+
+        $itinerary = $resolved->day?->itinerary;
+        $previousCost = (float) $resolved->cost_estimate;
+
+        DB::transaction(function () use (
+            $resolved,
+            $leg,
+            $transportMode,
+            $user,
+            $ecoPoints,
+            $culturePoints,
+            $pathPoints,
+            $itinerary,
+            $previousCost
+        ) {
+            $resolved->update([
+                'status' => 'completed',
+                'completed_at' => now(),
+            ]);
+
+            if ($leg) {
+                $leg->update(['transport_mode_id' => $transportMode->id]);
+            }
+
+            if ($itinerary) {
+                $itinerary->update([
+                    'total_cost' => max(0, (float) $itinerary->total_cost - $previousCost),
+                ]);
+            }
+
+            $user->increment('eco_points', $ecoPoints);
+            $user->increment('culture_points', $culturePoints);
+            $user->increment('path_points', $pathPoints);
+        });
+
+        $user->refresh();
+        $resolved->loadMissing(['destination', 'day.itinerary.request']);
+        $itinerary = $resolved->day?->itinerary?->fresh();
+
+        return [
+            'data' => [
+                'item' => $this->formatItem($resolved),
+                'points_earned' => [
+                    'eco_points' => $ecoPoints,
+                    'culture_points' => $culturePoints,
+                    'path_points' => $pathPoints,
+                ],
+                'user_total_path_points' => (int) $user->path_points,
+                'budget_snapshot' => $itinerary ? $this->buildBudgetSnapshot($itinerary) : null,
+            ],
+        ];
+    }
+
+    public function generateSmartSwaps(Itinerary $itinerary, int $currentDayNumber): array
+    {
+        $itinerary->loadMissing(['request']);
+
+        $pendingItems = ItineraryItem::query()
+            ->with(['day', 'destination'])
+            ->where('status', 'pending')
+            ->whereHas('day', function ($query) use ($itinerary, $currentDayNumber) {
+                $query
+                    ->where('itinerary_id', $itinerary->id)
+                    ->where('day_number', '>=', $currentDayNumber);
+            })
+            ->get();
+
+        if ($pendingItems->isEmpty()) {
+            return ['data' => ['swaps' => []]];
+        }
+
+        $city = (string) ($pendingItems->first()?->destination?->city
+            ?? $itinerary->request?->destination_label
+            ?? '');
+        $numPeople = (int) ($itinerary->request?->num_people ?? 1);
+
+        $cheapAlternatives = Destination::query()
+            ->where('price_tier', '<=', 2)
+            ->when($city !== '', fn ($query) => $query->where('city', $city))
+            ->limit(20)
+            ->get();
+
+        $pendingItemsString = $pendingItems->map(function (ItineraryItem $item) {
+            $destination = $item->destination;
+            $dayNumber = (int) ($item->day?->day_number ?? 0);
+            $cost = (float) $item->cost_estimate;
+
+            return implode('|', [
+                $item->id,
+                $dayNumber,
+                $item->visit_time,
+                $destination?->place_id,
+                $destination?->name,
+                $destination?->category,
+                $cost,
+            ]);
+        })->implode("\n");
+
+        $cheapAlternativesString = $cheapAlternatives->map(function (Destination $destination) use ($numPeople) {
+            $cost = $this->estimateCost($destination, $numPeople);
+
+            return implode('|', [
+                $destination->place_id,
+                $destination->name,
+                $destination->category,
+                $cost,
+            ]);
+        })->implode("\n");
+
+        $prompt = <<<PROMPT
+Kamu adalah asisten Smart Re-planner untuk itinerary travel.
+Tugasmu adalah menganalisis jadwal yang tersisa dan mengganti beberapa destinasi dengan alternatif yang lebih murah untuk menghemat budget user.
+
+Daftar Destinasi Tersisa Beserta Jadwal (Pending):
+{$pendingItemsString}
+
+Daftar Alternatif Destinasi (Price Tier 0-2):
+{$cheapAlternativesString}
+
+ATURAN MUTLAK:
+1. Perhatikan 'day_number' dan 'visit_time' dari destinasi yang akan diganti. Pilih destinasi alternatif yang SANGAT COCOK dengan waktu kunjungan tersebut (misal: jika visit_time jam 12:00 atau 19:00, prioritaskan kategori tempat makan/kuliner. Jangan pilih tempat yang tutup pada jam tersebut).
+2. Kamu BEBAS menentukan JUMLAH destinasi yang diganti dan MANA SAJA yang diganti dari daftar pending, asalkan logis, searah, dan menghemat budget.
+3. DILARANG BERHALUSINASI. Destinasi pengganti HANYA BOLEH diambil dari "Daftar Alternatif Destinasi" di atas.
+4. Nilai 'new_name' dan 'new_cost' HARUS persis dengan data Daftar Alternatif. Jangan mengarang harga.
+5. Hitung "savings" = current_cost - new_cost.
+6. Buat array "tags" (maksimal 2 item, contoh: "Kuliner Malam", "UMKM Hemat").
+7. Berikan "reason" logis (1 kalimat singkat) mengapa tempat ini cocok menggantikannya di jam tersebut.
+8. Output HARUS pure JSON tanpa markdown (tanpa kode fence ```).
+
+Format Output JSON:
+{
+  "swaps": [
+    {
+      "original_item_id": 15,
+      "original_name": "Nama Lama",
+      "original_cost": 85000,
+      "new_place_id": "ChIJ...",
+      "new_name": "Nama Tempat Sesuai Daftar Alternatif",
+      "new_cost": 20000,
+      "savings": 65000,
+      "tags": ["Tag 1", "Tag 2"],
+      "reason": "Alasan..."
+    }
+  ]
+}
+PROMPT;
+
+        $rawResponse = $this->gemini->generate($prompt);
+
+        if ($rawResponse === null) {
+            return [
+                'error' => 'Gagal menghubungi AI.',
+                'code' => 500,
+            ];
+        }
+
+        $parsed = $this->parseGeminiResponse($rawResponse);
+
+        if ($parsed === null) {
+            return [
+                'error' => 'Format rekomendasi tidak valid.',
+                'code' => 422,
+            ];
+        }
+
+        return ['data' => $parsed];
+    }
+
+    private function resolveItem(User $user, int $itineraryId, int $itemId): ItineraryItem|array
+    {
+        $item = ItineraryItem::with(['destination', 'day.itinerary.request'])
+            ->where('id', $itemId)
+            ->whereHas('day.itinerary', fn ($query) => $query->where('id', $itineraryId))
+            ->whereHas('day.itinerary.request', fn ($query) => $query->where('user_id', $user->id))
+            ->first();
+
+        if (! $item) {
+            return [
+                'error' => 'Item itinerary tidak ditemukan.',
+                'code' => 404,
+            ];
+        }
+
+        return $item;
+    }
+
+    private function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadius = 6371000;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+        $lat1 = deg2rad($lat1);
+        $lat2 = deg2rad($lat2);
+
+        $a = sin($dLat / 2) ** 2
+            + cos($lat1) * cos($lat2) * sin($dLng / 2) ** 2;
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+        return $earthRadius * $c;
+    }
+
+    private function formatItem(ItineraryItem $item): array
+    {
+        $destination = $item->destination;
+
+        return [
+            'id' => $item->id,
+            'status' => $item->status,
+            'completed_at' => $item->completed_at,
+            'destination' => $destination ? [
+                'place_id' => $destination->place_id,
+                'name' => $destination->name,
+                'address' => $destination->address,
+                'culture_points' => (int) ($destination->culture_points ?? 0),
+            ] : null,
+        ];
+    }
+
+    private function buildBudgetSnapshot(Itinerary $itinerary): array
+    {
+        $totalBudget = (float) $itinerary->total_budget;
+        $totalCost = (float) $itinerary->total_cost;
+
+        return [
+            'total_budget' => $totalBudget,
+            'total_cost' => $totalCost,
+            'remaining_budget' => max(0, $totalBudget - $totalCost),
         ];
     }
 
@@ -454,6 +844,7 @@ PROMPT;
                         'variant' => $variantKey,
                         'title' => $title,
                         'total_budget' => (float) ($variant['total_budget'] ?? $request->budget),
+                        'total_cost' => 0,
                         'status' => 'generated',
                     ]);
 
@@ -499,6 +890,8 @@ PROMPT;
 
                         $day->update(['estimated_cost' => $dayCost]);
 
+                        $itinerary->total_cost = (float) $itinerary->total_cost + $dayCost;
+
                         foreach (($dayData['legs'] ?? []) as $legData) {
                             $fromOrder = (int) ($legData['from_order'] ?? 0);
                             $toOrder = (int) ($legData['to_order'] ?? 0);
@@ -514,10 +907,11 @@ PROMPT;
                                 'to_item_id' => $toItem->id,
                                 'distance_km' => (float) ($legData['distance_km'] ?? 0),
                                 'duration_min' => (int) ($legData['duration_min'] ?? 0),
-                                'transport_mode' => (string) ($legData['transport_mode'] ?? 'unknown'),
                             ]);
                         }
                     }
+
+                    $itinerary->save();
                 }
 
                 if ($createdItemCount === 0) {
@@ -559,7 +953,7 @@ PROMPT;
     {
         $itinerary->loadMissing(['days.items.destination']);
 
-        $budget = (float) ($request?->budget ?? 0);
+        $budget = (float) ($itinerary->total_budget ?? $request?->budget ?? 0);
         $variantMeta = $this->extractVariantMeta($request);
         $meta = $variantMeta[$itinerary->variant] ?? [];
         $isRecommended = (bool) ($meta['is_recommended'] ?? false);
@@ -573,6 +967,8 @@ PROMPT;
             'id' => $itinerary->id,
             'variant' => $itinerary->variant,
             'title' => $itinerary->title,
+            'total_budget' => (float) $itinerary->total_budget,
+            'total_cost' => (float) $itinerary->total_cost,
             'total_estimate' => (float) $totalEstimate,
             'budget_percent' => $budgetPercent,
             'summary' => [
@@ -595,7 +991,7 @@ PROMPT;
     {
         $itinerary->loadMissing(['days.items.destination', 'days.items.legDeparting']);
 
-        $budget = (float) ($request?->budget ?? 0);
+        $budget = (float) ($itinerary->total_budget ?? $request?->budget ?? 0);
         $variantMeta = $this->extractVariantMeta($request);
         $meta = $variantMeta[$itinerary->variant] ?? [];
 
@@ -608,6 +1004,8 @@ PROMPT;
             'id' => $itinerary->id,
             'variant' => $itinerary->variant,
             'title' => $itinerary->title,
+            'total_budget' => (float) $itinerary->total_budget,
+            'total_cost' => (float) $itinerary->total_cost,
             'total_estimate' => (float) $totalEstimate,
             'budget_percent' => $budgetPercent,
             'summary' => [
@@ -637,6 +1035,7 @@ PROMPT;
                     'name' => $destination?->name,
                     'map_category' => $destination?->map_category,
                     'category' => $destination?->category,
+                    'status' => $item->status,
                     'order_index' => $item->order_index,
                     'visit_time' => $item->visit_time,
                     'cost_estimate' => (float) $item->cost_estimate,
@@ -644,7 +1043,7 @@ PROMPT;
                     'leg_to_next' => $leg ? [
                         'distance_km' => (float) $leg->distance_km,
                         'duration_min' => (int) $leg->duration_min,
-                        'transport_mode' => (string) $leg->transport_mode,
+                        'transport_mode' => $leg->transportMode?->mode,
                     ] : null,
                 ];
             })->all(),

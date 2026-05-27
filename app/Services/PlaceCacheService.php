@@ -134,6 +134,13 @@ class PlaceCacheService
                     $googleDetail['displayName']['text'] ?? '',
                     $googleDetail['formattedAddress'] ?? ''
                 ),
+                'culture_points' => $this->culturePointsFor(
+                    $this->extractCategory(
+                        $googleDetail['types'] ?? [],
+                        $googleDetail['displayName']['text'] ?? '',
+                        $googleDetail['formattedAddress'] ?? ''
+                    )
+                ),
                 'price_tier' => $this->extractPriceTier($googleDetail['priceLevel'] ?? null),
                 'address' => $googleDetail['formattedAddress'] ?? null,
                 'cached_at' => now(),
@@ -207,6 +214,15 @@ class PlaceCacheService
                             (float) ($p['rating'] ?? 0),
                             (int) ($p['userRatingCount'] ?? 0)
                         ),
+                        'culture_points' => $this->culturePointsFor(
+                            $this->extractBaseCategory($p['types'] ?? []),
+                            $this->resolveMapCategory(
+                                $this->extractBaseCategory($p['types'] ?? []),
+                                $p['displayName']['text'] ?? '',
+                                (float) ($p['rating'] ?? 0),
+                                (int) ($p['userRatingCount'] ?? 0)
+                            )
+                        ),
                         'rating' => $p['rating'] ?? 0,
                         'user_rating_count' => $p['userRatingCount'] ?? 0,
                         'price_tier' => $this->extractPriceTier($p['priceLevel'] ?? null),
@@ -258,6 +274,15 @@ class PlaceCacheService
                         $p['displayName']['text'] ?? '',
                         (float) ($p['rating'] ?? 0),
                         (int) ($p['userRatingCount'] ?? 0)
+                    ),
+                    'culture_points' => $this->culturePointsFor(
+                        $category,
+                        $this->resolveMapCategory(
+                            $category,
+                            $p['displayName']['text'] ?? '',
+                            (float) ($p['rating'] ?? 0),
+                            (int) ($p['userRatingCount'] ?? 0)
+                        )
                     ),
                 ]);
             }
@@ -334,6 +359,15 @@ class PlaceCacheService
                             (float) ($p['rating'] ?? 0),
                             (int) ($p['userRatingCount'] ?? 0)
                         ),
+                        'culture_points' => $this->culturePointsFor(
+                            $this->extractBaseCategory($p['types'] ?? []),
+                            $this->resolveMapCategory(
+                                $this->extractBaseCategory($p['types'] ?? []),
+                                $p['displayName']['text'] ?? '',
+                                (float) ($p['rating'] ?? 0),
+                                (int) ($p['userRatingCount'] ?? 0)
+                            )
+                        ),
                         'rating' => $p['rating'] ?? 0, // PERBAIKAN: Rating disimpan
                         'user_rating_count' => $p['userRatingCount'] ?? 0, // PERBAIKAN: Rating count disimpan
                         'price_tier' => $this->extractPriceTier($p['priceLevel'] ?? null),
@@ -385,6 +419,15 @@ class PlaceCacheService
                         $p['displayName']['text'] ?? '',
                         (float) ($p['rating'] ?? 0),
                         (int) ($p['userRatingCount'] ?? 0)
+                    ),
+                    'culture_points' => $this->culturePointsFor(
+                        $category,
+                        $this->resolveMapCategory(
+                            $category,
+                            $p['displayName']['text'] ?? '',
+                            (float) ($p['rating'] ?? 0),
+                            (int) ($p['userRatingCount'] ?? 0)
+                        )
                     ),
                 ]);
             }
@@ -560,6 +603,29 @@ class PlaceCacheService
             'hotel' => 'premium',
             default => 'unknown',
         };
+    }
+
+    private function culturePointsFor(string $category, ?string $mapCategory = null): int
+    {
+        $mapCategory = $mapCategory ?? '';
+
+        if ($mapCategory === 'heritage') {
+            return 35;
+        }
+
+        if ($mapCategory === 'iconic') {
+            return 30;
+        }
+
+        if ($category === 'museum') {
+            return 20;
+        }
+
+        if ($category === 'wisata') {
+            return 5;
+        }
+
+        return 0;
     }
 
     private function shouldRefreshMicrostory(Destination $destination): bool

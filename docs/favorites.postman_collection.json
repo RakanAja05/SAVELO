@@ -1,0 +1,163 @@
+{
+  "info": {
+    "name": "Favorites API - Savelo",
+    "_postman_id": "favorites-collection",
+    "description": "Collection untuk testing endpoint favorites.\n\nFlow:\n1. Login untuk dapat token\n2. Tambah favorite\n3. List favorites\n4. Hapus favorite\n\nVariabel base_url default ke http://localhost:8000/api/favorites",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api/favorites",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string",
+      "description": "Bearer token dari login/register"
+    },
+    {
+      "key": "destination_id",
+      "value": "",
+      "type": "string",
+      "description": "ID destinasi yang akan difavoritkan"
+    }
+  ],
+  "item": [
+    {
+      "name": "List Favorites",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has destinations array', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('destinations');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}",
+          "host": [
+            "{{base_url}}"
+          ]
+        },
+        "description": "Ambil daftar destinasi favorit user."
+      }
+    },
+    {
+      "name": "Add Favorite",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has destination', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.data).to.have.property('destination');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"destination_id\": {{destination_id}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}",
+          "host": [
+            "{{base_url}}"
+          ]
+        },
+        "description": "Tambahkan destinasi ke favorit berdasarkan destination_id."
+      }
+    },
+    {
+      "name": "Remove Favorite",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/{{destination_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "{{destination_id}}"
+          ]
+        },
+        "description": "Hapus destinasi dari favorit berdasarkan destination_id."
+      }
+    }
+  ]
+}

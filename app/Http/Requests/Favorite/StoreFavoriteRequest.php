@@ -1,27 +1,26 @@
 <?php
 
-namespace App\Http\Requests\Itinerary;
+namespace App\Http\Requests\Favorite;
 
 use App\Support\ApiResponse;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
-class UpdateItineraryItemRequest extends FormRequest
+class StoreFavoriteRequest extends FormRequest
 {
+    /**
+     * Determine if the user is authorized to make this request.
+     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * @return array<string, array<int, string>>
-     */
     public function rules(): array
     {
         return [
-            'place_id' => ['required_without:status', 'string', 'max:255'],
-            'status' => ['required_without:place_id', 'in:pending,completed'],
+            'destination_id' => ['required', 'integer', 'exists:destinations,id'],
         ];
     }
 

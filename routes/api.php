@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Auth\GoogleController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Destination\DestinationController;
+use App\Http\Controllers\Api\Favorite\FavoriteController;
 use App\Http\Controllers\Api\Itinerary\ItineraryController;
 use Illuminate\Support\Facades\Route;
 
@@ -27,10 +28,20 @@ Route::prefix('destinations')->middleware('auth:sanctum')->group(function () {
     Route::get('{placeId}', [DestinationController::class, 'show']);
 });
 
+Route::prefix('favorites')->middleware('auth:sanctum')->group(function () {
+    Route::get('/', [FavoriteController::class, 'index']);
+    Route::post('/', [FavoriteController::class, 'store']);
+    Route::delete('/{destinationId}', [FavoriteController::class, 'destroy']);
+});
+
 Route::prefix('itineraries')->middleware('auth:sanctum')->group(function () {
     Route::post('/generate', [ItineraryController::class, 'generate']);
+    Route::post('/{itineraryId}/smart-swaps', [ItineraryController::class, 'generateSmartSwaps']);
     Route::get('/requests/{requestId}', [ItineraryController::class, 'requestHistory']);
     Route::get('/{itineraryId}/days/{dayNumber}', [ItineraryController::class, 'dayPlan']);
     Route::patch('/{itineraryId}/{itemId}', [ItineraryController::class, 'updateItem']);
+    Route::post('/{itineraryId}/items/{itemId}/check-location', [ItineraryController::class, 'checkLocation']);
+    Route::get('/{itineraryId}/items/{itemId}/checkin-preview', [ItineraryController::class, 'checkinPreview']);
+    Route::patch('/{itineraryId}/items/{itemId}/checkin', [ItineraryController::class, 'checkin']);
     Route::get('/{itineraryId}', [ItineraryController::class, 'show']);
 });

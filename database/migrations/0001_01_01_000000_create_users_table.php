@@ -20,6 +20,9 @@ return new class extends Migration
             $table->string('password')->nullable();
             $table->string('avatar_url')->nullable();
             $table->string('locale', 5)->default('id');
+            $table->unsignedInteger('eco_points')->default(0);
+            $table->unsignedInteger('culture_points')->default(0);
+            $table->unsignedInteger('path_points')->default(0);
             $table->rememberToken();
             $table->timestamps();
         });

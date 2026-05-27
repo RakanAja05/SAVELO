@@ -26,6 +26,7 @@ return new class extends Migration
             $table->unsignedInteger('user_rating_count')->nullable();
             $table->text('description')->nullable();
             $table->string('category');
+            $table->unsignedInteger('culture_points')->default(0);
             $table->string('map_category')->nullable();
             $table->string('price_tier');
             $table->json('opening_hours')->nullable();

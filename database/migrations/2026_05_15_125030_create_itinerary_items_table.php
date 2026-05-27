@@ -20,6 +20,7 @@ return new class extends Migration
             $table->unsignedInteger('duration_minutes');
             $table->decimal('cost_estimate', 12, 2);
             $table->text('notes')->nullable();
+            $table->timestamp('completed_at')->nullable();
             $table->timestamps();
         });
     }

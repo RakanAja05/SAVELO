@@ -480,6 +480,85 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ValidationError"
+  /api/favorites:
+    get:
+      summary: Ambil daftar destinasi favorit
+      tags:
+        - Favorites
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FavoritesIndexResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      summary: Tambah destinasi ke favorit
+      tags:
+        - Favorites
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreFavoriteRequest"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FavoriteStoreResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+  /api/favorites/{destinationId}:
+    delete:
+      summary: Hapus destinasi dari favorit
+      tags:
+        - Favorites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: destinationId
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 42
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiSuccess"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1078,4 +1157,105 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/ItineraryDayDataResponse"
+          required: [data]
+    StoreFavoriteRequest:
+      type: object
+      properties:
+        destination_id:
+          type: integer
+          example: 42
+      required: [destination_id]
+    FavoriteDestination:
+      type: object
+      description: >
+        Format destinasi yang dikembalikan oleh FavoriteController.
+        price_range berupa string (beda dengan DestinationSummary yang pakai object PriceRange).
+      properties:
+        id:
+          type: integer
+          example: 42
+        place_id:
+          type: string
+          example: ChIJrTLr-GyuEmsRBfy61i59si0
+        name:
+          type: string
+          example: Borobudur Temple
+        slug:
+          type: string
+          example: borobudur-temple
+        category:
+          type: string
+          example: wisata
+        city:
+          type: string
+          example: Magelang
+        address:
+          type: string
+          nullable: true
+          example: Jl. Badrawati, Kw. Candi Borobudur
+        lat:
+          type: number
+          format: float
+          example: -7.6079
+        lng:
+          type: number
+          format: float
+          example: 110.2038
+        rating:
+          type: number
+          format: float
+          nullable: true
+          example: 4.7
+        user_rating_count:
+          type: integer
+          nullable: true
+          example: 23451
+        price_tier:
+          type: string
+          nullable: true
+          example: mid
+        price_range:
+          type: string
+          nullable: true
+          example: "Rp50.000 – Rp150.000"
+        photos:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [id, place_id, name, slug, category, city, lat, lng, photos]
+    FavoritesIndexData:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 3
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/FavoriteDestination"
+      required: [total, destinations]
+    FavoritesIndexResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/FavoritesIndexData"
+          required: [data]
+    FavoriteStoreData:
+      type: object
+      properties:
+        destination:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/FavoriteDestination"
+      required: [destination]
+    FavoriteStoreResponse:
+      allOf:
+        - $ref: "#/components/schemas/ApiSuccess"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/FavoriteStoreData"
           required: [data]

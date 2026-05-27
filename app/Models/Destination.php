@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 // app/Models/Destination.php
@@ -14,6 +15,7 @@ class Destination extends Model
     protected $fillable = [
         'area_id', 'place_id', 'name', 'slug', 'country_code', 'city',
         'address', 'lat', 'lng', 'rating', 'user_rating_count', 'description', 'category', 'map_category', 'price_tier',
+        'culture_points',
         'opening_hours', 'phone', 'whatsapp', 'official_url',
         'photos', 'ai_microstory', 'cached_at', 'detail_fetched_at',
     ];
@@ -25,11 +27,18 @@ class Destination extends Model
         'detail_fetched_at' => 'datetime',
         'rating' => 'decimal:2',
         'user_rating_count' => 'integer',
+        'culture_points' => 'integer',
     ];
 
     public function area(): BelongsTo
     {
         return $this->belongsTo(Area::class);
+    }
+
+    public function favoritedBy(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_favorite_destinations')
+            ->withTimestamps();
     }
 
     public function isDetailFresh(): bool

@@ -17,7 +17,7 @@ return new class extends Migration
             $table->foreignId('to_item_id')->constrained('itinerary_items')->cascadeOnDelete();
             $table->decimal('distance_km', 8, 2);
             $table->unsignedInteger('duration_min');
-            $table->string('transport_mode');
+            $table->foreignId('transport_mode_id')->nullable()->constrained('transport_modes')->nullOnDelete();
             $table->timestamps();
         });
     }

@@ -17,12 +17,19 @@ class ItineraryItem extends Model
         'duration_minutes',
         'cost_estimate',
         'notes',
+        'status',
+        'completed_at',
+    ];
+
+    protected $attributes = [
+        'status' => 'pending',
     ];
 
     protected $casts = [
         'order_index' => 'integer',
         'duration_minutes' => 'integer',
         'cost_estimate' => 'decimal:2',
+        'completed_at' => 'datetime',
     ];
 
     public function day(): BelongsTo

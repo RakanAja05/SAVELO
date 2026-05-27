@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\ItineraryLeg;
+use App\Models\TransportMode;
 use App\Services\DistanceMatrixService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -60,12 +61,16 @@ class FetchItineraryLegsJob implements ShouldQueue
                         (float) $toDestination->lng
                     );
 
+                    $modeId = TransportMode::query()
+                        ->where('mode', (string) ($result['mode'] ?? ''))
+                        ->value('id');
+
                     ItineraryLeg::create([
                         'from_item_id' => $from->id,
                         'to_item_id' => $to->id,
                         'distance_km' => (float) $result['distance_km'],
                         'duration_min' => (int) $result['duration_min'],
-                        'transport_mode' => (string) $result['mode'],
+                        'transport_mode_id' => $modeId,
                     ]);
                 }
             }
