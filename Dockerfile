@@ -29,6 +29,7 @@ RUN apk add --no-cache \
         libjpeg-turbo-dev \
         libpng-dev \
         libzip-dev \
+        oniguruma-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install \
         bcmath \

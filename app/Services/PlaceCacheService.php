@@ -64,15 +64,16 @@ class PlaceCacheService
         private GeminiService $gemini,
     ) {}
 
-    public function getCityPlaces(string $cityName): array
+public function getCityPlaces(string $cityName): array
     {
         $slug = Str::slug($cityName);
-        $latestCachedAt = Destination::where('city', $cityName)
-            ->whereNotNull('cached_at')
-            ->orderByDesc('cached_at')
-            ->value('cached_at');
+        $cacheKey = "city_data_synced_{$slug}";
 
-        if ($latestCachedAt && now()->diffInDays($latestCachedAt) < self::CACHE_TTL_DAYS) {
+        // Hitung ketersediaan tempat di DB lokal untuk kota ini
+        $placeCount = Destination::where('city', $cityName)->count();
+
+        // Cache VALID JIKA: Cache key ada DAN data di DB >= 20
+        if (Cache::has($cacheKey) && $placeCount >= 20) {
             return [
                 'from_cache' => true,
                 'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
@@ -80,20 +81,27 @@ class PlaceCacheService
         }
 
         try {
-            return Cache::lock("city_fetch_{$slug}", 30)->block(10, function () use ($cityName) {
-                $latestCachedAt = Destination::where('city', $cityName)
-                    ->whereNotNull('cached_at')
-                    ->orderByDesc('cached_at')
-                    ->value('cached_at');
+            // Gunakan waktu lock yang lebih lama (60 detik) karena multi-fetch butuh waktu
+            return Cache::lock("city_fetch_{$slug}", 60)->block(15, function () use ($cityName, $cacheKey) {
 
-                if ($latestCachedAt && now()->diffInDays($latestCachedAt) < self::CACHE_TTL_DAYS) {
+                // Double check di dalam lock (mencegah race condition)
+                $placeCount = Destination::where('city', $cityName)->count();
+                if (Cache::has($cacheKey) && $placeCount >= 20) {
                     return [
                         'from_cache' => true,
                         'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
                     ];
                 }
 
-                return $this->fetchCityTrending($cityName);
+                // Ganti pemanggilan ke fungsi baru
+                $result = $this->fetchCityDiverseDestinations($cityName);
+
+                // Jika sukses mengambil data, set flag cache
+                if (empty($result['error'])) {
+                    Cache::put($cacheKey, true, now()->addDays(self::CACHE_TTL_DAYS));
+                }
+
+                return $result;
             });
         } catch (LockTimeoutException) {
             return [
@@ -160,155 +168,156 @@ class PlaceCacheService
         ];
     }
 
-    private function fetchCityTrending(string $cityName): array
-    {
-        try {
-            $result = $this->google->searchByText("destinasi wisata populer {$cityName}", [
-                'fields' => implode(',', [
-                    'places.id',
-                    'places.displayName',
-                    'places.formattedAddress',
-                    'places.addressComponents',
-                    'places.location',
-                    'places.rating',
-                    'places.userRatingCount',
-                    'places.photos',
-                    'places.types',
-                    'places.regularOpeningHours',
-                    'places.internationalPhoneNumber',
-                    'places.websiteUri',
-                    'places.priceLevel',
-                ]),
-                'limit' => 20,
-            ]);
+    private function fetchCityDiverseDestinations(string $cityName): array
+        {
+            try {
+                // Kita cari dari berbagai kategori esensial dalam bahasa Inggris (lebih universal di API)
+                $searchQueries = [
+                    "top tourist attractions in {$cityName}",
+                    "best restaurants in {$cityName}",
+                    "best parks in {$cityName}",
+                    "best hotels in {$cityName}",
+                ];
 
-            if (empty($result['places'])) {
-                return ['places' => [], 'error' => 'Kota tidak ditemukan.'];
-            }
+                $allFetchedPlaces = [];
 
-            // Step 1: Save all destinations first with base values
-            foreach ($result['places'] as $p) {
-                $lat = $p['location']['latitude'];
-                $lng = $p['location']['longitude'];
-                $grid = $this->latLngToGrid($lat, $lng);
+                foreach ($searchQueries as $query) {
+                    $result = $this->google->searchByText($query, [
+                        'fields' => implode(',', [
+                            'places.id', 'places.displayName', 'places.formattedAddress',
+                            'places.addressComponents', 'places.location', 'places.rating',
+                            'places.userRatingCount', 'places.photos', 'places.types',
+                            'places.regularOpeningHours', 'places.internationalPhoneNumber',
+                            'places.websiteUri', 'places.priceLevel',
+                        ]),
+                        'limit' => 15, // 15 x 3 query = Potensi 45 tempat
+                    ]);
 
-                $area = Area::updateOrCreate(
-                    ['grid_lat' => $grid['grid_lat'], 'grid_lng' => $grid['grid_lng']],
-                    ['radius' => self::DETAIL_RADIUS]
-                );
+                    if (!empty($result['places'])) {
+                        $allFetchedPlaces = array_merge($allFetchedPlaces, $result['places']);
+                    }
+                }
 
-                Destination::updateOrCreate(
-                    ['place_id' => $p['id']],
-                    [
-                        'area_id' => $area->id,
-                        'name' => $p['displayName']['text'] ?? '',
-                        'slug' => Str::slug($p['displayName']['text'] ?? $p['id']),
-                        'country_code' => $this->extractCountryCode($p['addressComponents'] ?? []),
-                        'city' => $cityName,
-                        'lat' => $lat,
-                        'lng' => $lng,
-                        'category' => $this->extractBaseCategory($p['types'] ?? []),
+                if (empty($allFetchedPlaces)) {
+                    return ['places' => [], 'error' => 'Kota tidak ditemukan atau data terlalu sedikit.'];
+                }
+
+                // Hapus duplikat karena 1 tempat bisa muncul di kategori wisata & taman bersamaan
+                $uniquePlaces = collect($allFetchedPlaces)->unique('id')->values()->all();
+
+                // Step 1: Save all destinations first with base values
+                foreach ($uniquePlaces as $p) {
+                    $lat = $p['location']['latitude'];
+                    $lng = $p['location']['longitude'];
+                    $grid = $this->latLngToGrid($lat, $lng);
+
+                    $area = Area::updateOrCreate(
+                        ['grid_lat' => $grid['grid_lat'], 'grid_lng' => $grid['grid_lng']],
+                        ['radius' => self::DETAIL_RADIUS]
+                    );
+
+                    Destination::updateOrCreate(
+                        ['place_id' => $p['id']],
+                        [
+                            'area_id' => $area->id,
+                            'name' => $p['displayName']['text'] ?? '',
+                            'slug' => Str::slug($p['displayName']['text'] ?? $p['id']),
+                            'country_code' => $this->extractCountryCode($p['addressComponents'] ?? []),
+                            'city' => $cityName,
+                            'lat' => $lat,
+                            'lng' => $lng,
+                            'category' => $this->extractBaseCategory($p['types'] ?? []),
+                            'map_category' => $this->resolveMapCategory(
+                                $this->extractBaseCategory($p['types'] ?? []),
+                                $p['displayName']['text'] ?? '',
+                                (float) ($p['rating'] ?? 0),
+                                (int) ($p['userRatingCount'] ?? 0)
+                            ),
+                            'culture_points' => $this->culturePointsFor(
+                                $this->extractBaseCategory($p['types'] ?? []),
+                                $this->resolveMapCategory(
+                                    $this->extractBaseCategory($p['types'] ?? []),
+                                    $p['displayName']['text'] ?? '',
+                                    (float) ($p['rating'] ?? 0),
+                                    (int) ($p['userRatingCount'] ?? 0)
+                                )
+                            ),
+                            'rating' => $p['rating'] ?? 0,
+                            'user_rating_count' => $p['userRatingCount'] ?? 0,
+                            'price_tier' => $this->extractPriceTier($p['priceLevel'] ?? null),
+                            'address' => $p['formattedAddress'] ?? null,
+                            'opening_hours' => $p['regularOpeningHours'] ?? null,
+                            'phone' => $p['internationalPhoneNumber'] ?? null,
+                            'official_url' => $p['websiteUri'] ?? null,
+                            'photos' => array_slice($p['photos'] ?? [], 0, 5),
+                            'cached_at' => now(),
+                        ]
+                    );
+                }
+
+                // Step 2: One Gemini call for UMKM batch classification
+                $umkmResults = $this->batchClassifyUmkm($uniquePlaces);
+
+                // Step 3: Build resolved category map
+                $resolvedCategories = [];
+                foreach ($uniquePlaces as $p) {
+                    $placeId = $p['id'];
+                    $name = $p['displayName']['text'] ?? '';
+                    $aiResult = $umkmResults[$placeId] ?? null;
+                    $isUmkm = $aiResult !== null ? $aiResult : $this->classifyUmkmByRules($name);
+                    $resolvedCategories[$placeId] = $isUmkm ? 'umkm' : $this->extractBaseCategory($p['types'] ?? []);
+                }
+
+                // Step 4: One Gemini call for price tier batch inference
+                $priceResults = $this->batchInferPriceTier($uniquePlaces, $resolvedCategories);
+
+                // Step 5: Update DB with resolved category and price tier
+                foreach ($uniquePlaces as $p) {
+                    $placeId = $p['id'];
+                    $category = $resolvedCategories[$placeId];
+                    $priceTier = $priceResults[$placeId] ?? $this->extractPriceTier($p['priceLevel'] ?? null);
+
+                    if ($priceTier === 'unknown') {
+                        $priceTier = $this->categoryFallbackTier($category);
+                    }
+
+                    Destination::where('place_id', $placeId)->update([
+                        'category' => $category,
+                        'price_tier' => $priceTier,
                         'map_category' => $this->resolveMapCategory(
-                            $this->extractBaseCategory($p['types'] ?? []),
+                            $category,
                             $p['displayName']['text'] ?? '',
                             (float) ($p['rating'] ?? 0),
                             (int) ($p['userRatingCount'] ?? 0)
                         ),
                         'culture_points' => $this->culturePointsFor(
-                            $this->extractBaseCategory($p['types'] ?? []),
+                            $category,
                             $this->resolveMapCategory(
-                                $this->extractBaseCategory($p['types'] ?? []),
+                                $category,
                                 $p['displayName']['text'] ?? '',
                                 (float) ($p['rating'] ?? 0),
                                 (int) ($p['userRatingCount'] ?? 0)
                             )
                         ),
-                        'rating' => $p['rating'] ?? 0,
-                        'user_rating_count' => $p['userRatingCount'] ?? 0,
-                        'price_tier' => $this->extractPriceTier($p['priceLevel'] ?? null),
-                        'address' => $p['formattedAddress'] ?? null,
-                        'opening_hours' => $p['regularOpeningHours'] ?? null,
-                        'phone' => $p['internationalPhoneNumber'] ?? null,
-                        'official_url' => $p['websiteUri'] ?? null,
-                        'photos' => array_slice($p['photos'] ?? [], 0, 5),
-                        'cached_at' => now(),
-                    ]
-                );
-            }
-
-            // Step 2: One Gemini call for UMKM batch classification
-            $umkmResults = $this->batchClassifyUmkm($result['places']);
-
-            // Step 3: Build resolved category map (place_id => category)
-            $resolvedCategories = [];
-            foreach ($result['places'] as $p) {
-                $placeId = $p['id'];
-                $name = $p['displayName']['text'] ?? '';
-                $aiResult = $umkmResults[$placeId] ?? null;
-                $isUmkm = $aiResult !== null ? $aiResult : $this->classifyUmkmByRules($name);
-                $resolvedCategories[$placeId] = $isUmkm
-                    ? 'umkm'
-                    : $this->extractBaseCategory($p['types'] ?? []);
-            }
-
-            // Step 4: One Gemini call for price tier batch inference
-            $priceResults = $this->batchInferPriceTier($result['places'], $resolvedCategories);
-
-            // Step 5: Update DB with resolved category and price tier
-            foreach ($result['places'] as $p) {
-                $placeId = $p['id'];
-                $category = $resolvedCategories[$placeId];
-
-                $priceTier = $priceResults[$placeId]
-                    ?? $this->extractPriceTier($p['priceLevel'] ?? null);
-
-                if ($priceTier === 'unknown') {
-                    $priceTier = $this->categoryFallbackTier($category);
+                    ]);
                 }
 
-                Destination::where('place_id', $placeId)->update([
-                    'category' => $category,
-                    'price_tier' => $priceTier,
-                    'map_category' => $this->resolveMapCategory(
-                        $category,
-                        $p['displayName']['text'] ?? '',
-                        (float) ($p['rating'] ?? 0),
-                        (int) ($p['userRatingCount'] ?? 0)
-                    ),
-                    'culture_points' => $this->culturePointsFor(
-                        $category,
-                        $this->resolveMapCategory(
-                            $category,
-                            $p['displayName']['text'] ?? '',
-                            (float) ($p['rating'] ?? 0),
-                            (int) ($p['userRatingCount'] ?? 0)
-                        )
-                    ),
+                return [
+                    'from_cache' => false,
+                    'places' => Destination::where('city', $cityName)
+                        ->orderByDesc('rating')
+                        ->get(), // Mengambil semua yang sudah di-fetch
+                ];
+
+            } catch (\Exception $e) {
+                Log::error('PlaceCacheService: fetchCityDiverseDestinations failed', [
+                    'city' => $cityName,
+                    'error' => $e->getMessage(),
                 ]);
+
+                return ['places' => [], 'error' => 'Gagal mengambil data, coba lagi nanti.'];
             }
-
-            // Step 6: Soft delete destinations no longer returned by Google
-            $freshPlaceIds = array_column($result['places'], 'id');
-
-            Destination::where('city', $cityName)
-                ->whereNotIn('place_id', $freshPlaceIds)
-                ->whereNull('deleted_at')
-                ->update(['deleted_at' => now()]);
-
-            return [
-                'from_cache' => false,
-                'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('PlaceCacheService: fetchCityTrending failed', [
-                'city' => $cityName,
-                'error' => $e->getMessage(),
-            ]);
-
-            return ['places' => [], 'error' => 'Gagal mengambil data, coba lagi nanti.'];
         }
-    }
 
     private function fetchPlaceDetail(Destination $destination): array
     {
@@ -681,12 +690,11 @@ PROMPT;
 
             [$placeId, $value, $confidence] = $parts;
             $placeId = trim($placeId);
-            $confidence = (int) trim($confidence);
+            $confidence = (float) trim($confidence) * 100;
             $value = trim($value);
 
             if ($confidence < 70) {
                 $results[$placeId] = null;
-
                 continue;
             }
 
@@ -730,7 +738,17 @@ PROMPT;
 
         $response = $this->gemini->generate($prompt);
 
+        // Logging raw Gemini response
+        Log::info('Gemini batchClassifyUmkm raw response', [
+            'response'       => $response,
+            'places_count'   => count($places),
+            'prompt_length'  => strlen($prompt),
+        ]);
+
         if (! $response) {
+            Log::warning('batchClassifyUmkm: Gemini returned null', [
+                'places_count' => count($places),
+            ]);
             return [];
         }
 
@@ -775,7 +793,17 @@ PROMPT;
 
         $response = $this->gemini->generate($prompt);
 
+        // Logging raw Gemini response
+        Log::info('Gemini batchInferPriceTier raw response', [
+            'response'       => $response,
+            'places_count'   => count($toClassify),
+            'prompt_length'  => strlen($prompt),
+        ]);
+
         if (! $response) {
+            Log::warning('batchInferPriceTier: Gemini returned null', [
+                'places_count' => count($toClassify),
+            ]);
             return [];
         }
 

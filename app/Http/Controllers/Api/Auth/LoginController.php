@@ -7,14 +7,15 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Models\User;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request; // <--- ADD THIS LINE
 use Illuminate\Support\Facades\Hash;
 
 class LoginController extends Controller
 {
     /**
-     * Handle the incoming request.
+     * Handle the login request (for route: login).
      */
-    public function __invoke(LoginRequest $request): JsonResponse
+    public function login(LoginRequest $request): JsonResponse
     {
         $data = $request->validated();
 
@@ -31,5 +32,15 @@ class LoginController extends Controller
             'token' => $token,
             'token_type' => 'Bearer',
         ]);
+    }
+
+    /**
+     * Logout the authenticated user (Sanctum).
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()->currentAccessToken()->delete();
+
+        return ApiResponse::success('Logout berhasil.');
     }
 }

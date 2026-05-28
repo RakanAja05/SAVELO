@@ -1,8 +1,6 @@
-:7777 {
+:7352 {
     root * /var/www/html/public
-
     php_fastcgi app:9000
     encode gzip
-
     file_server
 }

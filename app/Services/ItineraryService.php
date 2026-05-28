@@ -473,121 +473,6 @@ class ItineraryService
         ];
     }
 
-    public function generateSmartSwaps(Itinerary $itinerary, int $currentDayNumber): array
-    {
-        $itinerary->loadMissing(['request']);
-
-        $pendingItems = ItineraryItem::query()
-            ->with(['day', 'destination'])
-            ->where('status', 'pending')
-            ->whereHas('day', function ($query) use ($itinerary, $currentDayNumber) {
-                $query
-                    ->where('itinerary_id', $itinerary->id)
-                    ->where('day_number', '>=', $currentDayNumber);
-            })
-            ->get();
-
-        if ($pendingItems->isEmpty()) {
-            return ['data' => ['swaps' => []]];
-        }
-
-        $city = (string) ($pendingItems->first()?->destination?->city
-            ?? $itinerary->request?->destination_label
-            ?? '');
-        $numPeople = (int) ($itinerary->request?->num_people ?? 1);
-
-        $cheapAlternatives = Destination::query()
-            ->where('price_tier', '<=', 2)
-            ->when($city !== '', fn ($query) => $query->where('city', $city))
-            ->limit(20)
-            ->get();
-
-        $pendingItemsString = $pendingItems->map(function (ItineraryItem $item) {
-            $destination = $item->destination;
-            $dayNumber = (int) ($item->day?->day_number ?? 0);
-            $cost = (float) $item->cost_estimate;
-
-            return implode('|', [
-                $item->id,
-                $dayNumber,
-                $item->visit_time,
-                $destination?->place_id,
-                $destination?->name,
-                $destination?->category,
-                $cost,
-            ]);
-        })->implode("\n");
-
-        $cheapAlternativesString = $cheapAlternatives->map(function (Destination $destination) use ($numPeople) {
-            $cost = $this->estimateCost($destination, $numPeople);
-
-            return implode('|', [
-                $destination->place_id,
-                $destination->name,
-                $destination->category,
-                $cost,
-            ]);
-        })->implode("\n");
-
-        $prompt = <<<PROMPT
-Kamu adalah asisten Smart Re-planner untuk itinerary travel.
-Tugasmu adalah menganalisis jadwal yang tersisa dan mengganti beberapa destinasi dengan alternatif yang lebih murah untuk menghemat budget user.
-
-Daftar Destinasi Tersisa Beserta Jadwal (Pending):
-{$pendingItemsString}
-
-Daftar Alternatif Destinasi (Price Tier 0-2):
-{$cheapAlternativesString}
-
-ATURAN MUTLAK:
-1. Perhatikan 'day_number' dan 'visit_time' dari destinasi yang akan diganti. Pilih destinasi alternatif yang SANGAT COCOK dengan waktu kunjungan tersebut (misal: jika visit_time jam 12:00 atau 19:00, prioritaskan kategori tempat makan/kuliner. Jangan pilih tempat yang tutup pada jam tersebut).
-2. Kamu BEBAS menentukan JUMLAH destinasi yang diganti dan MANA SAJA yang diganti dari daftar pending, asalkan logis, searah, dan menghemat budget.
-3. DILARANG BERHALUSINASI. Destinasi pengganti HANYA BOLEH diambil dari "Daftar Alternatif Destinasi" di atas.
-4. Nilai 'new_name' dan 'new_cost' HARUS persis dengan data Daftar Alternatif. Jangan mengarang harga.
-5. Hitung "savings" = current_cost - new_cost.
-6. Buat array "tags" (maksimal 2 item, contoh: "Kuliner Malam", "UMKM Hemat").
-7. Berikan "reason" logis (1 kalimat singkat) mengapa tempat ini cocok menggantikannya di jam tersebut.
-8. Output HARUS pure JSON tanpa markdown (tanpa kode fence ```).
-
-Format Output JSON:
-{
-  "swaps": [
-    {
-      "original_item_id": 15,
-      "original_name": "Nama Lama",
-      "original_cost": 85000,
-      "new_place_id": "ChIJ...",
-      "new_name": "Nama Tempat Sesuai Daftar Alternatif",
-      "new_cost": 20000,
-      "savings": 65000,
-      "tags": ["Tag 1", "Tag 2"],
-      "reason": "Alasan..."
-    }
-  ]
-}
-PROMPT;
-
-        $rawResponse = $this->gemini->generate($prompt);
-
-        if ($rawResponse === null) {
-            return [
-                'error' => 'Gagal menghubungi AI.',
-                'code' => 500,
-            ];
-        }
-
-        $parsed = $this->parseGeminiResponse($rawResponse);
-
-        if ($parsed === null) {
-            return [
-                'error' => 'Format rekomendasi tidak valid.',
-                'code' => 422,
-            ];
-        }
-
-        return ['data' => $parsed];
-    }
-
     private function resolveItem(User $user, int $itineraryId, int $itemId): ItineraryItem|array
     {
         $item = ItineraryItem::with(['destination', 'day.itinerary.request'])
@@ -653,95 +538,118 @@ PROMPT;
 
     private function selectCandidates(Collection $places): Collection
     {
-        return $places
+        $hotels = $places->where('category', 'hotel')
             ->sortByDesc('rating')
-            ->values()
-            ->take(12);
+            ->take(5)
+            ->values();
+
+        $cheap = $places->whereNotIn('category', ['hotel'])
+            ->whereIn('price_tier', ['free', 'budget'])
+            ->sortByDesc('rating')
+            ->take(8)
+            ->values();
+
+        $mid = $places->whereNotIn('category', ['hotel'])
+            ->where('price_tier', 'mid')
+            ->sortByDesc('rating')
+            ->take(6)
+            ->values();
+
+        $premium = $places->whereNotIn('category', ['hotel'])
+            ->whereIn('price_tier', ['premium', 'luxury'])
+            ->sortByDesc('rating')
+            ->take(6)
+            ->values();
+
+        return $hotels->concat($cheap)->concat($mid)->concat($premium);
     }
 
     private function buildPrompt(array $payload, Collection $candidates): string
+        {
+            $lines = $candidates->map(function (Destination $destination) {
+                $range = PlaceCacheService::priceTierRange($destination->price_tier);
+                $min = $range['min'] ?? 0;
+                $max = $range['max'] ?? 0;
+
+                return implode('|', [
+                    $destination->place_id,
+                    $destination->name,
+                    $destination->category,
+                    $min,
+                    $max,
+                ]);
+            })->implode("\n");
+
+            // 1. Definisikan Target Budget Spesifik di PHP
+            $budget = (float) $payload['budget'];
+            $hematMax = $budget * 0.75; // Maks 75%
+            $seimbangMin = $budget * 0.50; // Min 50%
+            $seimbangMax = $budget * 0.85; // Maks 85%
+            $expMin = $budget * 0.80; // Min 80%
+
+            $strBudget = number_format($budget, 0, '.', '');
+            $strHematMax = number_format($hematMax, 0, '.', '');
+            $strSeimbangMin = number_format($seimbangMin, 0, '.', '');
+            $strSeimbangMax = number_format($seimbangMax, 0, '.', '');
+            $strExpMin = number_format($expMin, 0, '.', '');
+
+            return <<<PROMPT
+    KAMU WAJIB MENGIKUTI SEMUA ATURAN PERSIS. JIKA ADA SATU SAJA PELANGGARAN, HASIL DIANGGAP TIDAK VALID.
+
+    Variabel konteks:
+    - origin: {$payload['origin']}
+    - destination_label: {$payload['destination_label']}
+    - duration_days: {$payload['duration_days']}
+    - num_people: {$payload['num_people']}
+    - budget_total: {$strBudget}
+
+    Daftar tempat yang tersedia (satu baris per tempat):
+    Format: place_id|name|category|min_cost_per_person|max_cost_per_person
+    {$lines}
+
+    Buat TEPAT 3 varian dengan key: "hemat", "seimbang", dan "experience".
+
+    Aturan keras:
+    1) STRUKTUR HARIAN (KUANTITAS TEMPAT)
+        - SEMUA VARIAN WAJIB memiliki 3 hingga 5 destinasi per harinya (DILARANG HANYA 1 ATAU 2 TEMPAT).
+        - Untuk SETIAP HARI, item TERAKHIR (order_index paling besar) WAJIB hotel (category = "hotel") dengan visit_time sekitar "21:00".
+        - Semua item SEBELUM hotel WAJIB destinasi non-hotel (category != "hotel").
+    2) BUDGET & BIAYA (SANGAT KRITIKAL)
+        - Kalikan biaya per person dengan num_people ({$payload['num_people']}).
+        - Varian "hemat": WAJIB pilih mayoritas tempat murah/gratis. TOTAL BIAYA HARUS DI BAWAH {$strHematMax}.
+        - Varian "seimbang": TOTAL BIAYA HARUS BERADA DI ANTARA {$strSeimbangMin} hingga {$strSeimbangMax}.
+        - Varian "experience": WAJIB pilih tempat premium/mahal. TOTAL BIAYA HARUS BERADA DI ANTARA {$strExpMin} hingga {$strBudget}.
+    3) PRIORITAS
+        - Prioritaskan tempat dengan category "umkm" untuk varian hemat.
+    4) METADATA
+        - Setiap varian WAJIB memiliki: title (string), tags (array TEPAT 3 string; tiap tag MAKS 3 kata), score (integer).
+    5) FORMAT KELUARAN
+        - KELUARKAN murni JSON saja.
+
+    Skema JSON keluaran (harus sama persis. Jumlah items HANYA CONTOH, buat dinamis 3-5 item per hari):
     {
-        $lines = $candidates->map(function (Destination $destination) {
-            $range = PlaceCacheService::priceTierRange($destination->price_tier);
-            $min = $range['min'] ?? 0;
-            $max = $range['max'] ?? 0;
-
-            return implode('|', [
-                $destination->place_id,
-                $destination->name,
-                $destination->category,
-                $min,
-                $max,
-            ]);
-        })->implode("\n");
-
-        $budget = number_format((float) $payload['budget'], 0, '.', '');
-
-        return <<<PROMPT
-KAMU WAJIB MENGIKUTI SEMUA ATURAN PERSIS. JIKA ADA SATU SAJA PELANGGARAN, HASIL DIANGGAP TIDAK VALID.
-
-Variabel konteks:
-- origin: {$payload['origin']}
-- destination_label: {$payload['destination_label']}
-- duration_days: {$payload['duration_days']}
-- num_people: {$payload['num_people']}
-- budget: {$budget}
-
-Daftar tempat yang tersedia (satu baris per tempat):
-Format: place_id|name|category|min_cost_per_person|max_cost_per_person
-{$lines}
-
-Buat TEPAT 3 varian dengan key: "hemat", "seimbang", dan "experience".
-
-Aturan keras:
-1) STRUKTUR HARIAN
-     - Untuk setiap hari 1..{$payload['duration_days']}, wajib ada TEPAT 4 item.
-     - order_index 1, 2, 3 WAJIB destinasi non-hotel (category != "hotel").
-     - order_index 4 WAJIB hotel (category = "hotel") dengan visit_time tepat "21:00".
-2) BUDGET & BIAYA
-     - Untuk setiap item, estimasi biaya per orang menggunakan rentang min/max yang tersedia.
-     - Kalikan biaya per orang dengan num_people ({$payload['num_people']}) untuk mendapatkan total biaya item.
-     - Biaya hotel WAJIB dihitung dalam total budget.
-     - Total biaya setiap varian TIDAK BOLEH melebihi {$budget}.
-3) PRIORITAS
-     - Prioritaskan tempat dengan category "umkm" untuk item non-hotel jika memungkinkan.
-4) METADATA
-     - Setiap varian WAJIB memiliki: title (string), tags (array TEPAT 3 string; tiap tag MAKS 3 kata), score (integer).
-5) FORMAT KELUARAN
-     - KELUARKAN murni JSON saja. Tanpa markdown, tanpa code fence, tanpa teks tambahan.
-
-Skema JSON keluaran (harus sama persis):
-{
-    "hemat": {
-        "title": "...",
-        "tags": ["...", "...", "..."],
-        "score": 0,
-        "total_cost": 0,
-        "days": [
-            {
-                "day_number": 1,
-                "items": [
-                    {"place_id": "...", "order_index": 1, "visit_time": "08:30"},
-                    {"place_id": "...", "order_index": 2, "visit_time": "12:30"},
-                    {"place_id": "...", "order_index": 3, "visit_time": "17:00"},
-                    {"place_id": "...", "order_index": 4, "visit_time": "21:00"}
-                ]
-            }
-        ]
-    },
-    "seimbang": { ... bentuk sama ... },
-    "experience": { ... bentuk sama ... }
-}
-
-Ringkasan aturan (tanpa pengecualian):
-- Gunakan HANYA place_id dari daftar yang diberikan.
-- Setiap hari TEPAT 4 item, hotel di order_index 4 pada "21:00".
-- Total biaya per varian <= {$budget} dan termasuk biaya hotel.
-- TEPAT 3 varian: hemat, seimbang, experience.
-- Tags jumlah = 3, tiap tag maksimal 3 kata.
-- Output JSON saja.
-PROMPT;
+        "hemat": {
+            "title": "...",
+            "tags": ["...", "...", "..."],
+            "score": 0,
+            "total_cost": 0,
+            "days": [
+                {
+                    "day_number": 1,
+                    "items": [
+                        {"place_id": "...", "order_index": 1, "visit_time": "08:30"},
+                        {"place_id": "...", "order_index": 2, "visit_time": "12:30"},
+                        {"place_id": "...", "order_index": 3, "visit_time": "16:00"},
+                        {"place_id": "...", "order_index": 4, "visit_time": "21:00"}
+                    ]
+                }
+            ]
+        },
+        "seimbang": { ... bentuk sama ... },
+        "experience": { ... bentuk sama ... }
     }
+    PROMPT;
+        }
 
     private function parseGeminiResponse(string $response): ?array
     {

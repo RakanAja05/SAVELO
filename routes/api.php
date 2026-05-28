@@ -10,33 +10,31 @@ use App\Http\Controllers\Api\Itinerary\ItineraryController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
-    Route::post('login', LoginController::class);
-    Route::post('/register', [RegisterController::class, 'register']);
-    Route::post('/register/verify', [RegisterController::class, 'verify']);
-
-    Route::post('/forgot-password', [ForgotPasswordController::class, 'requestOtp']);
-    Route::post('/forgot-password/reset', [ForgotPasswordController::class, 'reset']);
-
-    // Google OAuth
+    Route::post('login', [LoginController::class, 'login'])->middleware('throttle:auth');
+    Route::post('/register', [RegisterController::class, 'register'])->middleware('throttle:auth');
+    Route::post('/register/verify', [RegisterController::class, 'verify'])->middleware('throttle:auth');
+    Route::post('/forgot-password', [ForgotPasswordController::class, 'requestOtp'])->middleware('throttle:auth');
+    Route::post('/forgot-password/reset', [ForgotPasswordController::class, 'reset'])->middleware('throttle:auth');
+    Route::post('/logout', [LoginController::class, 'logout'])->middleware('auth:sanctum');
     Route::get('google', [GoogleController::class, 'redirect']);
     Route::get('google/callback', [GoogleController::class, 'callback']);
 });
 
-Route::prefix('destinations')->middleware('auth:sanctum')->group(function () {
+Route::prefix('destinations')->middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/', [DestinationController::class, 'index']);
     Route::get('/map', [DestinationController::class, 'map']);
     Route::get('{placeId}', [DestinationController::class, 'show']);
 });
 
-Route::prefix('favorites')->middleware('auth:sanctum')->group(function () {
+Route::prefix('favorites')->middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/', [FavoriteController::class, 'index']);
     Route::post('/', [FavoriteController::class, 'store']);
     Route::delete('/{destinationId}', [FavoriteController::class, 'destroy']);
 });
 
-Route::prefix('itineraries')->middleware('auth:sanctum')->group(function () {
-    Route::post('/generate', [ItineraryController::class, 'generate']);
-    Route::post('/{itineraryId}/smart-swaps', [ItineraryController::class, 'generateSmartSwaps']);
+Route::prefix('itineraries')->middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    Route::post('/generate', [ItineraryController::class, 'generate'])->middleware('throttle:itinerary-generate');
+    Route::post('/{itineraryId}/smart-swaps', [ItineraryController::class, 'generateSmartSwaps'])->middleware('throttle:smart-swaps');
     Route::get('/requests/{requestId}', [ItineraryController::class, 'requestHistory']);
     Route::get('/{itineraryId}/days/{dayNumber}', [ItineraryController::class, 'dayPlan']);
     Route::patch('/{itineraryId}/{itemId}', [ItineraryController::class, 'updateItem']);

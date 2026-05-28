@@ -29,7 +29,7 @@ return new class extends Migration
             $table->json('opening_hours')->nullable();
             $table->string('phone')->nullable();
             $table->string('whatsapp')->nullable();
-            $table->string('official_url')->nullable();
+            $table->text('official_url')->nullable();
             $table->json('photos')->nullable();
             $table->text('ai_microstory')->nullable();
             $table->json('accessibility_flags')->nullable();
