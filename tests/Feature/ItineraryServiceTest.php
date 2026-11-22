@@ -174,12 +174,12 @@ test('getRequestHistory returns itinerary for user', function () {
 
 test('getRequestHistory returns error for non-existent request', function () {
     $user = User::factory()->create();
-
     $service = app(ItineraryService::class);
-    $result = $service->getRequestHistory($user, 99999);
 
-    expect($result)
-        ->toHaveKey('error', 'Itinerary tidak ditemukan.')
+    $result = $service->getRequestHistory($user, 999);
+
+    expect($result)->toHaveKey('error')
+        ->and($result['error'])->toBe('Request tidak ditemukan.')
         ->and($result['code'])->toBe(404);
 });
 
