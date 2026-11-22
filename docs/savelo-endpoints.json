@@ -100,7 +100,612 @@
   },
   "item": [
     {
-      "name": "1. Authentication",
+      "name": "1. Quick Start - Login",
+      "item": [
+        {
+          "name": "1.1 Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Token received', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('auth_token', json.data.token);",
+                  "    console.log('✓ Logged in as:', pm.collectionVariables.get('test_email'));",
+                  "    console.log('✓ Token saved:', json.data.token.substring(0, 20) + '...');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"{{test_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Login dengan user yang sudah ada. Token otomatis tersimpan untuk request berikutnya."
+          }
+        },
+        {
+          "name": "1.2 Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Logout dan hapus token. Jalankan di akhir testing."
+          }
+        }
+      ],
+      "description": "Start here! Login dulu untuk dapat token, baru bisa akses endpoint lain."
+    },
+    {
+      "name": "2. Destinations",
+      "item": [
+        {
+          "name": "2.1 Get City Destinations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has destinations', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.destinations).to.be.an('array');",
+                  "    if (json.data.destinations.length > 0) {",
+                  "        const firstPlace = json.data.destinations[0];",
+                  "        pm.collectionVariables.set('place_id', firstPlace.place_id);",
+                  "        pm.collectionVariables.set('destination_id', firstPlace.id);",
+                  "        console.log('✓ place_id saved:', firstPlace.place_id);",
+                  "        console.log('✓ destination_id saved:', firstPlace.id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/destinations?city={{test_city}}",
+              "host": ["{{base_url}}"],
+              "path": ["destinations"],
+              "query": [{"key": "city", "value": "{{test_city}}"}]
+            }
+          }
+        },
+        {
+          "name": "2.2 Get Destination Detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('place_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Has destination data', () => {",
+                  "        const json = pm.response.json();",
+                  "        pm.expect(json.data.destination).to.be.an('object');",
+                  "    });",
+                  "} else {",
+                  "    pm.test.skip('No place_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/destinations/{{place_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["destinations", "{{place_id}}"]
+            }
+          }
+        },
+        {
+          "name": "2.3 Get Map Pins",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has map data', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.destinations).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/destinations/map?city={{test_city}}",
+              "host": ["{{base_url}}"],
+              "path": ["destinations", "map"],
+              "query": [{"key": "city", "value": "{{test_city}}"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Favorites",
+      "item": [
+        {
+          "name": "3.1 Add to Favorites",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('destination_id')) {",
+                  "    const expectedStatuses = [201, 200, 400];",
+                  "    pm.test('Status is acceptable', () => {",
+                  "        pm.expect(expectedStatuses).to.include(pm.response.code);",
+                  "    });",
+                  "    if (pm.response.code === 400) {",
+                  "        console.log('⚠️ Already in favorites (expected if re-running)');",
+                  "    }",
+                  "} else {",
+                  "    pm.test.skip('No destination_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination_id\": {{destination_id}}\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/favorites",
+              "host": ["{{base_url}}"],
+              "path": ["favorites"]
+            }
+          }
+        },
+        {
+          "name": "3.2 Get Favorites",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has favorites array', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data.favorites).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/favorites",
+              "host": ["{{base_url}}"],
+              "path": ["favorites"]
+            }
+          }
+        },
+        {
+          "name": "3.3 Remove from Favorites",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('destination_id')) {",
+                  "    const expectedStatuses = [200, 404];",
+                  "    pm.test('Status is acceptable', () => {",
+                  "        pm.expect(expectedStatuses).to.include(pm.response.code);",
+                  "    });",
+                  "    if (pm.response.code === 404) {",
+                  "        console.log('⚠️ Not in favorites (expected if already removed)');",
+                  "    }",
+                  "} else {",
+                  "    pm.test.skip('No destination_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "DELETE",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/favorites/{{destination_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["favorites", "{{destination_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Itineraries (Existing Data)",
+      "item": [
+        {
+          "name": "4.1 Get Itinerary Detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('itinerary_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Has itinerary data', () => {",
+                  "        const json = pm.response.json();",
+                  "        pm.expect(json.data.itinerary).to.be.an('object');",
+                  "        if (json.data.itinerary.days && json.data.itinerary.days[0]) {",
+                  "            const firstItem = json.data.itinerary.days[0].items[0];",
+                  "            if (firstItem) {",
+                  "                pm.collectionVariables.set('item_id', firstItem.id);",
+                  "                console.log('✓ item_id:', firstItem.id);",
+                  "            }",
+                  "        }",
+                  "    });",
+                  "} else {",
+                  "    pm.test.skip('No itinerary_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/itineraries/{{itinerary_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "{{itinerary_id}}"]
+            },
+            "description": "Menggunakan itinerary_id dari database"
+          }
+        },
+        {
+          "name": "4.2 Get Request History",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('request_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "} else {",
+                  "    pm.test.skip('No request_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/itineraries/requests/{{request_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "requests", "{{request_id}}"]
+            }
+          }
+        },
+        {
+          "name": "4.3 Get Day Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('itinerary_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "} else {",
+                  "    pm.test.skip('No itinerary_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/itineraries/{{itinerary_id}}/days/{{day_number}}",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "{{itinerary_id}}", "days", "{{day_number}}"]
+            }
+          }
+        },
+        {
+          "name": "4.4 Update Itinerary Item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('item_id') && pm.collectionVariables.get('place_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "} else {",
+                  "    pm.test.skip('No item_id or place_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "PATCH",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"place_id\": \"{{place_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/itineraries/{{itinerary_id}}/{{item_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "{{itinerary_id}}", "{{item_id}}"]
+            }
+          }
+        }
+      ],
+      "description": "Test dengan data itinerary yang sudah ada di database"
+    },
+    {
+      "name": "5. Itineraries (Check-in Flow)",
+      "item": [
+        {
+          "name": "5.1 Check Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('item_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Has distance data', () => {",
+                  "        const json = pm.response.json();",
+                  "        pm.expect(json.data).to.have.property('distance_meters');",
+                  "    });",
+                  "} else {",
+                  "    pm.test.skip('No item_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_lat\": -7.797068,\n  \"user_lng\": 110.370529\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/itineraries/{{itinerary_id}}/items/{{item_id}}/check-location",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "{{itinerary_id}}", "items", "{{item_id}}", "check-location"]
+            }
+          }
+        },
+        {
+          "name": "5.2 Checkin Preview",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('item_id')) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Has transport modes', () => {",
+                  "        const json = pm.response.json();",
+                  "        pm.expect(json.data.transport_modes).to.be.an('array');",
+                  "        if (json.data.transport_modes.length > 0) {",
+                  "            pm.collectionVariables.set('transport_mode_id', json.data.transport_modes[0].id);",
+                  "            console.log('✓ transport_mode_id:', json.data.transport_modes[0].id);",
+                  "        }",
+                  "    });",
+                  "} else {",
+                  "    pm.test.skip('No item_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "header": [
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "url": {
+              "raw": "{{base_url}}/itineraries/{{itinerary_id}}/items/{{item_id}}/checkin-preview",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "{{itinerary_id}}", "items", "{{item_id}}", "checkin-preview"]
+            }
+          }
+        },
+        {
+          "name": "5.3 Checkin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('item_id')) {",
+                  "    const expectedStatuses = [200, 400];",
+                  "    pm.test('Status is acceptable', () => {",
+                  "        pm.expect(expectedStatuses).to.include(pm.response.code);",
+                  "    });",
+                  "    if (pm.response.code === 200) {",
+                  "        pm.test('Points earned', () => {",
+                  "            const json = pm.response.json();",
+                  "            pm.expect(json.data).to.have.property('points_earned');",
+                  "        });",
+                  "    } else if (pm.response.code === 400) {",
+                  "        console.log('⚠️ Already checked in (expected if re-running)');",
+                  "    }",
+                  "} else {",
+                  "    pm.test.skip('No item_id available');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{auth_token}}", "type": "string"}]
+            },
+            "method": "PATCH",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Accept", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transport_mode_id\": {{transport_mode_id}}\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/itineraries/{{itinerary_id}}/items/{{item_id}}/checkin",
+              "host": ["{{base_url}}"],
+              "path": ["itineraries", "{{itinerary_id}}", "items", "{{item_id}}", "checkin"]
+            }
+          }
+        }
+      ],
+      "description": "Alur check-in complete: check location → preview → checkin"
+    },
+    {
+      "name": "⚠️ Advanced - Generate New Itinerary",
       "item": [
         {
           "name": "Register & Verify",
