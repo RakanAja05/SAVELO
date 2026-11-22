@@ -130,7 +130,14 @@ test('generate returns error when city has no destinations', function () {
 test('generate returns error when Gemini fails', function () {
     $user = User::factory()->create();
 
-    Destination::factory()->count(30)->create(['city' => 'Bandung']);
+    // Create destinations with unique areas to avoid UNIQUE constraint violations
+    Destination::factory()->count(30)->create([
+        'city' => 'Bandung',
+        'area_id' => null, // Let factory create unique areas per destination
+    ]);
+
+    // Mark city as cached
+    Cache::put('city_data_synced_bandung', true, now()->addDays(30));
 
     Http::fake([
         '*/models/*:generateContent*' => Http::response([], 500),
@@ -147,7 +154,7 @@ test('generate returns error when Gemini fails', function () {
 
     expect($result)
         ->toHaveKey('error')
-        ->and($result['code'])->toBe(404);
+        ->and($result['code'])->toBe(500);
 });
 
 test('getRequestHistory returns itinerary for user', function () {
