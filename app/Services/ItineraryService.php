@@ -565,35 +565,35 @@ class ItineraryService
     }
 
     private function buildPrompt(array $payload, Collection $candidates): string
-        {
-            $lines = $candidates->map(function (Destination $destination) {
-                $range = PlaceCacheService::priceTierRange($destination->price_tier);
-                $min = $range['min'] ?? 0;
-                $max = $range['max'] ?? 0;
+    {
+        $lines = $candidates->map(function (Destination $destination) {
+            $range = PlaceCacheService::priceTierRange($destination->price_tier);
+            $min = $range['min'] ?? 0;
+            $max = $range['max'] ?? 0;
 
-                return implode('|', [
-                    $destination->place_id,
-                    $destination->name,
-                    $destination->category,
-                    $min,
-                    $max,
-                ]);
-            })->implode("\n");
+            return implode('|', [
+                $destination->place_id,
+                $destination->name,
+                $destination->category,
+                $min,
+                $max,
+            ]);
+        })->implode("\n");
 
-            // 1. Definisikan Target Budget Spesifik di PHP
-            $budget = (float) $payload['budget'];
-            $hematMax = $budget * 0.75; // Maks 75%
-            $seimbangMin = $budget * 0.50; // Min 50%
-            $seimbangMax = $budget * 0.85; // Maks 85%
-            $expMin = $budget * 0.80; // Min 80%
+        // 1. Definisikan Target Budget Spesifik di PHP
+        $budget = (float) $payload['budget'];
+        $hematMax = $budget * 0.75; // Maks 75%
+        $seimbangMin = $budget * 0.50; // Min 50%
+        $seimbangMax = $budget * 0.85; // Maks 85%
+        $expMin = $budget * 0.80; // Min 80%
 
-            $strBudget = number_format($budget, 0, '.', '');
-            $strHematMax = number_format($hematMax, 0, '.', '');
-            $strSeimbangMin = number_format($seimbangMin, 0, '.', '');
-            $strSeimbangMax = number_format($seimbangMax, 0, '.', '');
-            $strExpMin = number_format($expMin, 0, '.', '');
+        $strBudget = number_format($budget, 0, '.', '');
+        $strHematMax = number_format($hematMax, 0, '.', '');
+        $strSeimbangMin = number_format($seimbangMin, 0, '.', '');
+        $strSeimbangMax = number_format($seimbangMax, 0, '.', '');
+        $strExpMin = number_format($expMin, 0, '.', '');
 
-            return <<<PROMPT
+        return <<<PROMPT
     KAMU WAJIB MENGIKUTI SEMUA ATURAN PERSIS. JIKA ADA SATU SAJA PELANGGARAN, HASIL DIANGGAP TIDAK VALID.
 
     Variabel konteks:
@@ -649,7 +649,7 @@ class ItineraryService
         "experience": { ... bentuk sama ... }
     }
     PROMPT;
-        }
+    }
 
     private function parseGeminiResponse(string $response): ?array
     {

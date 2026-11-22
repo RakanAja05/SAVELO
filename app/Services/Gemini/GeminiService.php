@@ -59,7 +59,7 @@ class GeminiService
                 'response_length' => strlen($response->json('candidates.0.content.parts.0.text') ?? ''),
                 'finish_reason' => $response->json('candidates.0.finishReason'),
                 'token_count' => $response->json('usageMetadata'),
-                'full_response'   => $response->json(),
+                'full_response' => $response->json(),
             ]);
 
             return $response->json('candidates.0.content.parts.0.text');
