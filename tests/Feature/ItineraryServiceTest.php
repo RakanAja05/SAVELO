@@ -218,7 +218,10 @@ test('checkLocation returns distance and radius check', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
     $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
-    $day = $itinerary->days()->create(['day_number' => 1]);
+    $day = $itinerary->days()->create([
+        'day_number' => 1,
+        'estimated_cost' => 0,
+    ]);
 
     $destination = Destination::factory()->create([
         'lat' => -6.9024,
@@ -229,6 +232,7 @@ test('checkLocation returns distance and radius check', function () {
         'destination_id' => $destination->id,
         'order_index' => 1,
         'visit_time' => '08:00',
+        'duration_minutes' => 90,
         'cost_estimate' => 50000,
     ]);
 
@@ -246,7 +250,10 @@ test('checkinPreview returns transport modes and culture points', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
     $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
-    $day = $itinerary->days()->create(['day_number' => 1]);
+    $day = $itinerary->days()->create([
+        'day_number' => 1,
+        'estimated_cost' => 0,
+    ]);
 
     $destination = Destination::factory()->create(['culture_points' => 20]);
 
@@ -254,6 +261,7 @@ test('checkinPreview returns transport modes and culture points', function () {
         'destination_id' => $destination->id,
         'order_index' => 1,
         'visit_time' => '08:00',
+        'duration_minutes' => 90,
         'cost_estimate' => 50000,
     ]);
 
@@ -275,5 +283,5 @@ test('generateSmartSwaps method does not exist and causes error', function () {
     $service = app(ItineraryService::class);
 
     expect(fn () => $service->generateSmartSwaps($itinerary, 1))
-        ->toThrow(BadMethodCallException::class);
+        ->toThrow(Error::class);
 });
