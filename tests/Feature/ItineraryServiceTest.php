@@ -8,6 +8,7 @@ use App\Models\ItineraryRequest;
 use App\Models\User;
 use App\Services\ItineraryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
@@ -19,11 +20,14 @@ beforeEach(function () {
 test('generate creates itinerary with three variants when successful', function () {
     $user = User::factory()->create();
 
-    // Create destinations for the city
+    // Create destinations for the city and mark cache as synced
     $destinations = Destination::factory()->count(30)->create([
         'city' => 'Bandung',
         'rating' => 4.5,
     ]);
+
+    // Mark city as cached (so it doesn't try to fetch from Google)
+    Cache::put('city_data_synced_bandung', true, now()->addDays(30));
 
     // Mock Gemini response
     $geminiResponse = [
