@@ -33,9 +33,9 @@ Successfully refactored two oversized "god" service classes into 13 small, cohes
 ### ItineraryService
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| Lines | 1,039 | ~370 | **-669 (-64%)** |
+| Lines | 1,039 | 311 | **-728 (-70%)** |
 | Public methods | 9 | 9 | No change |
-| Private methods | 20 | ~5 | -15 (extracted) |
+| Private methods | 20 | 1 | -19 (extracted) |
 | Constructor deps | 2 | 8 | +6 (injected services) |
 | Responsibilities | 8+ | 1 | Orchestrator only |
 
@@ -51,9 +51,9 @@ Successfully refactored two oversized "god" service classes into 13 small, cohes
 ### Summary
 | | Before | After | Reduction |
 |---|--------|-------|-----------|
-| **God services** | 1,923 lines | 777 lines | **-1,146 (-60%)** |
+| **God services** | 1,923 lines | 718 lines | **-1,205 (-63%)** |
 | **Extracted classes** | 0 | 1,281 lines | 12 new classes |
-| **Total codebase** | 1,923 lines | 2,058 lines | +135 lines (+7%) |
+| **Total codebase** | 1,923 lines | 1,999 lines | +76 lines (+4%) |
 
 *Small increase due to proper class structure (namespaces, constructors, docblocks)*
 
@@ -91,7 +91,7 @@ app/Services/
 │   ├── PriceTierResolver.php
 │   ├── UmkmClassifier.php
 │   └── PlaceEnricher.php
-├── ItineraryService.php (~370 lines, orchestrator)
+├── ItineraryService.php (311 lines, orchestrator)
 ├── Itinerary/
 │   ├── BudgetCalculator.php
 │   ├── ItineraryFormatter.php
@@ -201,6 +201,6 @@ a7f59a6 fix: update Postman collection with existing database values
 
 ## Conclusion
 
-Successfully split 1,923 lines of god services into 2 orchestrators (777 lines) + 12 focused classes (1,281 lines). Result: **60% reduction in orchestrator complexity**, **100% test pass rate**, **zero behavior changes**.
+Successfully split 1,923 lines of god services into 2 orchestrators (718 lines) + 12 focused classes (1,281 lines). Result: **63% reduction in orchestrator complexity**, **100% test pass rate**, **zero behavior changes**.
 
 The codebase is now more maintainable, testable, and follows SOLID principles while preserving all existing functionality.
