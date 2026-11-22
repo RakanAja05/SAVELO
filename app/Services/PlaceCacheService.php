@@ -400,8 +400,8 @@ class PlaceCacheService
             ->get();
     }
 
-    public static function priceTierRange(string $tier): array
+    public function priceTierRange(string $tier): array
     {
-        return PriceTierResolver::priceTierRange($tier);
+        return $this->priceTierResolver->priceTierRange($tier);
     }
 }

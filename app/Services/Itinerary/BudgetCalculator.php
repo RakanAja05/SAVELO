@@ -6,17 +6,19 @@ namespace App\Services\Itinerary;
 
 use App\Models\Destination;
 use App\Models\Itinerary;
+use App\Services\PlaceCache\PriceTierResolver;
 use App\Services\PlaceCacheService;
 
 class BudgetCalculator
 {
     public function __construct(
         private PlaceCacheService $places,
+        private PriceTierResolver $priceTierResolver,
     ) {}
 
     public function estimateCost(Destination $destination, int $numPeople): float
     {
-        $range = PlaceCacheService::priceTierRange($destination->price_tier);
+        $range = $this->priceTierResolver->priceTierRange($destination->price_tier);
         $min = $range['min'] ?? 0;
 
         return (float) $min * max(1, $numPeople);

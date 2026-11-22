@@ -139,7 +139,7 @@ PROMPT;
     /**
      * Get price range for a given tier.
      */
-    public static function priceTierRange(string $tier): array
+    public function priceTierRange(string $tier): array
     {
         return match ($tier) {
             'free' => ['min' => 0, 'max' => 0, 'label' => 'Gratis'],

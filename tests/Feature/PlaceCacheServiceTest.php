@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Area;
 use App\Models\Destination;
+use App\Services\PlaceCache\PriceTierResolver;
 use App\Services\PlaceCacheService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -235,16 +236,18 @@ test('getPlaceDetail returns error when place not found', function () {
 });
 
 test('priceTierRange returns correct ranges for all tiers', function () {
-    expect(PlaceCacheService::priceTierRange('free'))
-        ->toBe(['min' => 0, 'max' => 0, 'label' => 'Gratis'])
-        ->and(PlaceCacheService::priceTierRange('budget'))
-        ->toBe(['min' => 10000, 'max' => 50000, 'label' => 'Rp10.000 - Rp50.000'])
-        ->and(PlaceCacheService::priceTierRange('mid'))
-        ->toBe(['min' => 50000, 'max' => 150000, 'label' => 'Rp50.000 - Rp150.000'])
-        ->and(PlaceCacheService::priceTierRange('premium'))
-        ->toBe(['min' => 150000, 'max' => 500000, 'label' => 'Rp150.000 - Rp500.000'])
-        ->and(PlaceCacheService::priceTierRange('luxury'))
-        ->toBe(['min' => 500000, 'max' => null, 'label' => 'Rp500.000+'])
-        ->and(PlaceCacheService::priceTierRange('unknown'))
-        ->toBe(['min' => null, 'max' => null, 'label' => 'Tidak diketahui']);
+    $resolver = app(PriceTierResolver::class);
+
+    expect($resolver->priceTierRange('free'))
+        ->toEqual(['min' => 0, 'max' => 0, 'label' => 'Gratis'])
+        ->and($resolver->priceTierRange('budget'))
+        ->toEqual(['min' => 10000, 'max' => 50000, 'label' => 'Rp10.000 - Rp50.000'])
+        ->and($resolver->priceTierRange('mid'))
+        ->toEqual(['min' => 50000, 'max' => 150000, 'label' => 'Rp50.000 - Rp150.000'])
+        ->and($resolver->priceTierRange('premium'))
+        ->toEqual(['min' => 150000, 'max' => 500000, 'label' => 'Rp150.000 - Rp500.000'])
+        ->and($resolver->priceTierRange('luxury'))
+        ->toEqual(['min' => 500000, 'max' => null, 'label' => 'Rp500.000+'])
+        ->and($resolver->priceTierRange('unknown'))
+        ->toEqual(['min' => null, 'max' => null, 'label' => 'Tidak diketahui']);
 });

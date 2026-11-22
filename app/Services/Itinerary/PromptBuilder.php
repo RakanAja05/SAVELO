@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Itinerary;
 
 use App\Models\Destination;
+use App\Services\PlaceCache\PriceTierResolver;
 use App\Services\PlaceCacheService;
 use Illuminate\Support\Collection;
 
@@ -12,6 +13,7 @@ class PromptBuilder
 {
     public function __construct(
         private PlaceCacheService $places,
+        private PriceTierResolver $priceTierResolver,
     ) {}
 
     public function selectCandidates(Collection $places): Collection
@@ -45,7 +47,7 @@ class PromptBuilder
     public function buildPrompt(array $payload, Collection $candidates): string
     {
         $lines = $candidates->map(function (Destination $destination) {
-            $range = PlaceCacheService::priceTierRange($destination->price_tier);
+            $range = $this->priceTierResolver->priceTierRange($destination->price_tier);
             $min = $range['min'] ?? 0;
             $max = $range['max'] ?? 0;
 
