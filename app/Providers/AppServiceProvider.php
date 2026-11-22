@@ -42,7 +42,7 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)
                 ->by($request->user()?->id ?: $request->ip())
                 ->response(fn () => response()->json([
-                    'status'  => 'error',
+                    'status' => 'error',
                     'message' => 'Terlalu banyak permintaan. Coba lagi nanti.',
                 ], 429));
         });
@@ -51,7 +51,7 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perHour(5)
                 ->by($request->user()?->id ?: $request->ip())
                 ->response(fn () => response()->json([
-                    'status'  => 'error',
+                    'status' => 'error',
                     'message' => 'Batas generate itinerary tercapai. Coba lagi dalam 1 jam.',
                 ], 429));
         });
@@ -60,7 +60,7 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perHour(10)
                 ->by($request->user()?->id ?: $request->ip())
                 ->response(fn () => response()->json([
-                    'status'  => 'error',
+                    'status' => 'error',
                     'message' => 'Batas smart swap tercapai. Coba lagi dalam 1 jam.',
                 ], 429));
         });
@@ -69,7 +69,7 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)
                 ->by($request->ip())
                 ->response(fn () => response()->json([
-                    'status'  => 'error',
+                    'status' => 'error',
                     'message' => 'Terlalu banyak percobaan. Coba lagi nanti.',
                 ], 429));
         });
