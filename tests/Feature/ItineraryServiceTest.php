@@ -193,7 +193,8 @@ test('getItineraryDetail returns detailed itinerary', function () {
 
     expect($result)
         ->toHaveKey('data')
-        ->and($result['data']['itinerary'])->toHaveKey('id', $itinerary->id);
+        ->and($result['data'])->toHaveKey('id')
+        ->and($result['data']['id'])->toBe($itinerary->id);
 });
 
 test('updateItem swaps destination and recalculates cost', function () {
