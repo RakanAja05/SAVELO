@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Jobs\FetchItineraryLegsJob;
 use App\Models\Destination;
 use App\Models\Itinerary;
 use App\Models\ItineraryItem;
@@ -17,7 +18,6 @@ use App\Services\Itinerary\ItineraryFormatter;
 use App\Services\Itinerary\ItineraryParser;
 use App\Services\Itinerary\ItineraryPersister;
 use App\Services\Itinerary\PromptBuilder;
-use Illuminate\Support\Facades\DB;
 
 class ItineraryService
 {
@@ -32,6 +32,12 @@ class ItineraryService
         private CheckinManager $checkinManager,
     ) {}
 
+    /**
+     * Generate 3 itinerary variants (hemat, seimbang, experience) via Gemini and dispatch leg distance calculation.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
     public function generate(User $user, array $payload): array
     {
         $request = ItineraryRequest::create([
@@ -82,39 +88,53 @@ class ItineraryService
         if ($variants === []) {
             $request->update(['status' => 'failed', 'gemini_raw_response' => ['raw' => $rawResponse]]);
 
-            return ['error' => 'Tidak ada varian itinerary yang valid.', 'code' => 422];
+            return ['error' => 'Format itinerary tidak valid.', 'code' => 422];
         }
 
-        $finalized = $this->parser->finalizeRecommendation($variants);
-        $parsed['variants'] = $finalized;
+        $variants = $this->parser->finalizeRecommendation($variants);
+        $parsed = ['variants' => $variants];
+
+        $request->update([
+            'status' => 'generated',
+            'gemini_raw_response' => [
+                'raw' => $rawResponse,
+                'parsed' => $parsed,
+            ],
+        ]);
 
         $itineraries = $this->persister->persistItineraries($request, $parsed, $candidates);
 
         if ($itineraries === null) {
-            $request->update(['status' => 'failed', 'gemini_raw_response' => ['raw' => $rawResponse, 'parsed' => $parsed]]);
+            $request->update(['status' => 'failed']);
 
             return ['error' => 'Gagal menyimpan itinerary.', 'code' => 500];
         }
 
-        $request->update(['status' => 'completed', 'gemini_raw_response' => ['raw' => $rawResponse, 'parsed' => $parsed]]);
+        $request->update(['status' => 'completed']);
+
+        FetchItineraryLegsJob::dispatch($itineraries);
 
         return [
             'data' => [
-                'request' => $this->formatter->formatRequest($request),
+                'request' => $this->formatter->formatRequest($request->fresh()),
                 'itineraries' => $this->formatter->formatItineraries($itineraries, $request),
             ],
         ];
     }
 
+    /**
+     * Get generated itinerary variants for a user's request.
+     *
+     * @return array<string, mixed>
+     */
     public function getRequestHistory(User $user, int $requestId): array
     {
         $request = ItineraryRequest::with(['itineraries.days.items.destination'])
-            ->where('id', $requestId)
             ->where('user_id', $user->id)
-            ->first();
+            ->find($requestId);
 
         if (! $request) {
-            return ['error' => 'Request tidak ditemukan.', 'code' => 404];
+            return ['error' => 'Itinerary tidak ditemukan.', 'code' => 404];
         }
 
         return [
@@ -125,30 +145,39 @@ class ItineraryService
         ];
     }
 
+    /**
+     * Get full detail for a specific itinerary owned by the user.
+     *
+     * @return array<string, mixed>
+     */
     public function getItineraryDetail(User $user, int $itineraryId): array
     {
         $itinerary = Itinerary::with(['days.items.destination', 'days.items.legDeparting', 'request'])
             ->whereHas('request', fn ($query) => $query->where('user_id', $user->id))
-            ->where('id', $itineraryId)
-            ->first();
+            ->find($itineraryId);
 
         if (! $itinerary) {
             return ['error' => 'Itinerary tidak ditemukan.', 'code' => 404];
         }
 
-        $request = $itinerary->request;
-        $variantMeta = $this->formatter->extractVariantMeta($request);
-        $isRecommended = (bool) ($variantMeta[$itinerary->variant]['is_recommended'] ?? false);
-
-        return ['data' => $this->formatter->formatItinerary($itinerary, $request, $isRecommended)];
+        return [
+            'data' => [
+                'request' => $this->formatter->formatRequest($itinerary->request),
+                'itinerary' => $this->formatter->formatItinerary($itinerary, $itinerary->request, true),
+            ],
+        ];
     }
 
+    /**
+     * Get a single day plan for an itinerary owned by the user.
+     *
+     * @return array<string, mixed>
+     */
     public function getItineraryDay(User $user, int $itineraryId, int $dayNumber): array
     {
-        $itinerary = Itinerary::with(['days.items.destination', 'days.items.legDeparting'])
+        $itinerary = Itinerary::with(['days.items.destination', 'days.items.legDeparting', 'request'])
             ->whereHas('request', fn ($query) => $query->where('user_id', $user->id))
-            ->where('id', $itineraryId)
-            ->first();
+            ->find($itineraryId);
 
         if (! $itinerary) {
             return ['error' => 'Itinerary tidak ditemukan.', 'code' => 404];
@@ -157,12 +186,24 @@ class ItineraryService
         $day = $itinerary->days->firstWhere('day_number', $dayNumber);
 
         if (! $day) {
-            return ['error' => 'Day tidak ditemukan.', 'code' => 404];
+            return ['error' => 'Rencana hari tidak ditemukan.', 'code' => 404];
         }
 
-        return ['data' => $this->formatter->formatDay($day)];
+        return [
+            'data' => [
+                'request' => $this->formatter->formatRequest($itinerary->request),
+                'itinerary' => $this->formatter->formatItinerarySummary($itinerary, $itinerary->request),
+                'day' => $this->formatter->formatDay($day),
+            ],
+        ];
     }
 
+    /**
+     * Update an itinerary item's destination and/or status and refresh affected travel legs.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
     public function updateItem(User $user, int $itineraryId, int $itemId, array $payload): array
     {
         $resolved = $this->resolveItem($user, $itineraryId, $itemId);
@@ -171,49 +212,41 @@ class ItineraryService
             return $resolved;
         }
 
-        $newPlaceId = $payload['place_id'] ?? null;
+        $destination = null;
+        $placeId = $payload['place_id'] ?? null;
 
-        if (! $newPlaceId) {
-            return ['error' => 'place_id diperlukan.', 'code' => 422];
+        if ($placeId !== null) {
+            $destination = Destination::where('place_id', $placeId)->first();
+
+            if (! $destination) {
+                return [
+                    'error' => 'Destinasi tidak ditemukan.',
+                    'details' => ['place_id' => $placeId],
+                    'code' => 422,
+                ];
+            }
         }
 
-        $newDestination = Destination::where('place_id', $newPlaceId)->first();
+        $statusProvided = array_key_exists('status', $payload);
+        $newStatus = $statusProvided ? (string) $payload['status'] : (string) $resolved->status;
 
-        if (! $newDestination) {
-            return ['error' => 'Destinasi tidak ditemukan.', 'code' => 404];
-        }
+        $itinerary = $this->persister->applyItemUpdate($resolved, $destination, $statusProvided, $newStatus);
 
-        $itinerary = $resolved->day?->itinerary;
-        $day = $resolved->day;
-        $oldCost = (float) $resolved->cost_estimate;
-
-        DB::transaction(function () use ($resolved, $newDestination, $itinerary, $day, $oldCost) {
-            $numPeople = $itinerary?->request?->num_people ?? 1;
-            $newCost = $this->budgetCalculator->estimateCost($newDestination, (int) $numPeople);
-
-            $resolved->update(['destination_id' => $newDestination->id, 'cost_estimate' => $newCost]);
-
-            if ($day) {
-                $day->update(['estimated_cost' => max(0, (float) $day->estimated_cost - $oldCost + $newCost)]);
-            }
-
-            if ($itinerary) {
-                $totalEstimate = $itinerary->days->sum('estimated_cost');
-                $itinerary->update(['total_cost' => $totalEstimate]);
-            }
-        });
-
-        $resolved->loadMissing(['destination', 'day.itinerary']);
-        $itinerary = $resolved->day?->itinerary?->fresh();
+        FetchItineraryLegsJob::dispatch(collect([$itinerary]));
 
         return [
             'data' => [
-                'item' => $this->formatter->formatItem($resolved),
-                'budget_snapshot' => $itinerary ? $this->budgetCalculator->buildBudgetSnapshot($itinerary) : null,
+                'request' => $this->formatter->formatRequest($itinerary->request),
+                'itinerary' => $this->formatter->formatItinerary($itinerary, $itinerary->request, true),
             ],
         ];
     }
 
+    /**
+     * Verify whether user coordinates are within the check-in radius of an itinerary item.
+     *
+     * @return array<string, mixed>
+     */
     public function checkLocation(User $user, int $itineraryId, int $itemId, float $userLat, float $userLng): array
     {
         $resolved = $this->resolveItem($user, $itineraryId, $itemId);
@@ -228,11 +261,14 @@ class ItineraryService
             return ['error' => 'Destinasi tidak ditemukan.', 'code' => 422];
         }
 
-        $result = $this->checkinManager->checkLocation($userLat, $userLng, $destination);
-
-        return ['data' => ['is_within_radius' => $result['is_near'], 'distance_meters' => $result['distance_meters']]];
+        return ['data' => $this->checkinManager->checkLocation($userLat, $userLng, $destination)];
     }
 
+    /**
+     * Retrieve check-in preview data for an itinerary item.
+     *
+     * @return array<string, mixed>
+     */
     public function checkinPreview(User $user, int $itineraryId, int $itemId): array
     {
         $resolved = $this->resolveItem($user, $itineraryId, $itemId);
@@ -247,19 +283,14 @@ class ItineraryService
             return ['error' => 'Destinasi tidak ditemukan.', 'code' => 422];
         }
 
-        $preview = $this->checkinManager->getCheckinPreview($resolved);
-
-        return [
-            'data' => array_merge($preview, [
-                'destination' => [
-                    'name' => $destination->name,
-                    'address' => $destination->address,
-                    'culture_points' => (int) ($destination->culture_points ?? 0),
-                ],
-            ]),
-        ];
+        return ['data' => $this->checkinManager->getCheckinPreview($resolved, $destination)];
     }
 
+    /**
+     * Complete check-in for an itinerary item and award PathPoints.
+     *
+     * @return array<string, mixed>
+     */
     public function checkin(User $user, int $itineraryId, int $itemId, int $transportModeId): array
     {
         $resolved = $this->resolveItem($user, $itineraryId, $itemId);
@@ -270,6 +301,12 @@ class ItineraryService
 
         if ($resolved->status === 'completed') {
             return ['error' => 'Item itinerary sudah selesai.', 'code' => 422];
+        }
+
+        $destination = $resolved->destination;
+
+        if (! $destination) {
+            return ['error' => 'Destinasi tidak ditemukan.', 'code' => 422];
         }
 
         $transportMode = TransportMode::find($transportModeId);
@@ -294,6 +331,22 @@ class ItineraryService
         ];
     }
 
+    /**
+     * Return clean 501 Not Implemented response for the unimplemented smart swaps prototype endpoint.
+     *
+     * @return array{error: string, code: int}
+     */
+    public function generateSmartSwaps(Itinerary $itinerary, int $currentDayNumber): array
+    {
+        return [
+            'error' => 'Smart swaps belum diimplementasikan pada prototipe ini.',
+            'code' => 501,
+        ];
+    }
+
+    /**
+     * @return ItineraryItem|array{error: string, code: int}
+     */
     private function resolveItem(User $user, int $itineraryId, int $itemId): ItineraryItem|array
     {
         $item = ItineraryItem::with(['destination', 'day.itinerary.request'])

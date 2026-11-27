@@ -14,10 +14,11 @@ class ItineraryFormatter
 {
     private const DEFAULT_ECO_POINTS = 200;
 
-    public function __construct(
-        private BudgetCalculator $budgetCalculator,
-    ) {}
-
+    /**
+     * Format itinerary request summary for API responses.
+     *
+     * @return array<string, mixed>
+     */
     public function formatRequest(ItineraryRequest $request): array
     {
         return [
@@ -31,6 +32,11 @@ class ItineraryFormatter
         ];
     }
 
+    /**
+     * Format itinerary card summary without day items.
+     *
+     * @return array<string, mixed>
+     */
     public function formatItinerarySummary(Itinerary $itinerary, ?ItineraryRequest $request): array
     {
         $itinerary->loadMissing(['days.items.destination']);
@@ -58,10 +64,15 @@ class ItineraryFormatter
                 'eco_points' => self::DEFAULT_ECO_POINTS,
                 'is_recommended' => $isRecommended,
             ],
-            // Tidak ada 'days' — hanya summary card
         ];
     }
 
+    /**
+     * Format a collection of itinerary summary cards.
+     *
+     * @param  Collection<int, Itinerary>  $itineraries
+     * @return array<int, array<string, mixed>>
+     */
     public function formatItineraries(Collection $itineraries, ?ItineraryRequest $request): array
     {
         return $itineraries->values()->map(function (Itinerary $itinerary) use ($request) {
@@ -69,6 +80,11 @@ class ItineraryFormatter
         })->all();
     }
 
+    /**
+     * Format a full itinerary including sorted daily plans.
+     *
+     * @return array<string, mixed>
+     */
     public function formatItinerary(Itinerary $itinerary, ?ItineraryRequest $request, bool $isRecommended): array
     {
         $itinerary->loadMissing(['days.items.destination', 'days.items.legDeparting']);
@@ -101,6 +117,11 @@ class ItineraryFormatter
         ];
     }
 
+    /**
+     * Format a single day plan with ordered items and travel legs.
+     *
+     * @return array<string, mixed>
+     */
     public function formatDay(ItineraryDay $day): array
     {
         return [
@@ -132,6 +153,11 @@ class ItineraryFormatter
         ];
     }
 
+    /**
+     * Format a single checked-in itinerary item payload.
+     *
+     * @return array<string, mixed>
+     */
     public function formatItem(ItineraryItem $item): array
     {
         $destination = $item->destination;
@@ -149,6 +175,9 @@ class ItineraryFormatter
         ];
     }
 
+    /**
+     * Format IDR currency label.
+     */
     public function formatPriceLabel(float $cost): string
     {
         if ($cost <= 0) {
@@ -158,8 +187,17 @@ class ItineraryFormatter
         return 'Rp '.number_format($cost, 0, ',', '.');
     }
 
-    public function normalizeTags(array $tags): array
+    /**
+     * Normalize up to 3 non-empty string tags.
+     *
+     * @return array<int, string>
+     */
+    public function normalizeTags(mixed $tags): array
     {
+        if (! is_array($tags)) {
+            return [];
+        }
+
         return collect($tags)
             ->filter(fn ($tag) => is_string($tag) && $tag !== '')
             ->values()
@@ -167,6 +205,12 @@ class ItineraryFormatter
             ->all();
     }
 
+    /**
+     * Build fallback summary tags when Gemini tags are missing.
+     *
+     * @param  Collection<int, ItineraryItem>  $items
+     * @return array<int, string>
+     */
     public function buildSummaryTags(Collection $items): array
     {
         $iconicCount = $items->filter(
@@ -180,6 +224,11 @@ class ItineraryFormatter
         return [$iconicTag, $transportTag, $ecoTag];
     }
 
+    /**
+     * Extract variant metadata from stored Gemini response.
+     *
+     * @return array<string, array{is_recommended: mixed, tags: mixed}>
+     */
     public function extractVariantMeta(?ItineraryRequest $request): array
     {
         if (! $request) {

@@ -6,16 +6,20 @@ namespace App\Services\Itinerary;
 
 use App\Models\Destination;
 use App\Services\PlaceCache\PriceTierResolver;
-use App\Services\PlaceCacheService;
 use Illuminate\Support\Collection;
 
 class PromptBuilder
 {
     public function __construct(
-        private PlaceCacheService $places,
         private PriceTierResolver $priceTierResolver,
     ) {}
 
+    /**
+     * Select a balanced set of candidate places across price tiers and hotels.
+     *
+     * @param  Collection<int, Destination>  $places
+     * @return Collection<int, Destination>
+     */
     public function selectCandidates(Collection $places): Collection
     {
         $hotels = $places->where('category', 'hotel')
@@ -44,6 +48,12 @@ class PromptBuilder
         return $hotels->concat($cheap)->concat($mid)->concat($premium);
     }
 
+    /**
+     * Build the Gemini prompt for generating 3 budget-constrained itinerary variants.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  Collection<int, Destination>  $candidates
+     */
     public function buildPrompt(array $payload, Collection $candidates): string
     {
         $lines = $candidates->map(function (Destination $destination) {
@@ -60,12 +70,11 @@ class PromptBuilder
             ]);
         })->implode("\n");
 
-        // 1. Definisikan Target Budget Spesifik di PHP
         $budget = (float) $payload['budget'];
-        $hematMax = $budget * 0.75; // Maks 75%
-        $seimbangMin = $budget * 0.50; // Min 50%
-        $seimbangMax = $budget * 0.85; // Maks 85%
-        $expMin = $budget * 0.80; // Min 80%
+        $hematMax = $budget * 0.75;
+        $seimbangMin = $budget * 0.50;
+        $seimbangMax = $budget * 0.85;
+        $expMin = $budget * 0.80;
 
         $strBudget = number_format($budget, 0, '.', '');
         $strHematMax = number_format($hematMax, 0, '.', '');

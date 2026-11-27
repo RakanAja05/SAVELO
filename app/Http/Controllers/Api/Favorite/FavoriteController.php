@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Favorite\StoreFavoriteRequest;
 use App\Models\Destination;
 use App\Services\PlaceCache\PriceTierResolver;
-use App\Services\PlaceCacheService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,7 +13,6 @@ use Illuminate\Http\Request;
 class FavoriteController extends Controller
 {
     public function __construct(
-        private PlaceCacheService $cache,
         private PriceTierResolver $priceTierResolver
     ) {}
 

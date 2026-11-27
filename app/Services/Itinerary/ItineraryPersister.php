@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Itinerary;
 
+use App\Models\Destination;
 use App\Models\Itinerary;
 use App\Models\ItineraryDay;
 use App\Models\ItineraryItem;
@@ -24,6 +25,10 @@ class ItineraryPersister
 
     /**
      * Persist parsed itinerary variants to database.
+     *
+     * @param  array<string, mixed>  $parsed
+     * @param  Collection<int, Destination>  $candidates
+     * @return Collection<int, Itinerary>|null
      */
     public function persistItineraries(
         ItineraryRequest $request,
@@ -141,5 +146,64 @@ class ItineraryPersister
         return Itinerary::with(['days.items.destination'])
             ->whereIn('id', $itineraryIds)
             ->get();
+    }
+
+    /**
+     * Atomically update an itinerary item's destination and/or status and recalculate day/itinerary costs.
+     */
+    public function applyItemUpdate(
+        ItineraryItem $item,
+        ?Destination $destination,
+        bool $statusProvided,
+        string $newStatus
+    ): Itinerary {
+        $itinerary = $item->day->itinerary;
+        $numPeople = (int) ($itinerary->request?->num_people ?? 1);
+        $previousCost = (float) $item->cost_estimate;
+        $previousStatus = (string) $item->status;
+        $newCost = $destination ? $this->budgetCalculator->estimateCost($destination, $numPeople) : $previousCost;
+
+        DB::transaction(function () use ($item, $destination, $previousCost, $previousStatus, $itinerary, $statusProvided, $newStatus, $newCost) {
+            $updates = [];
+
+            if ($destination) {
+                $updates['destination_id'] = $destination->id;
+                $updates['cost_estimate'] = $newCost;
+            }
+
+            if ($statusProvided) {
+                $updates['status'] = $newStatus;
+            }
+
+            if ($updates !== []) {
+                $item->update($updates);
+            }
+
+            if ($destination) {
+                ItineraryLeg::where('from_item_id', $item->id)
+                    ->orWhere('to_item_id', $item->id)
+                    ->delete();
+
+                $day = $item->day;
+                $day->update(['estimated_cost' => (float) $day->items()->sum('cost_estimate')]);
+            }
+
+            $delta = $this->budgetCalculator->calculateStatusCostDelta(
+                $previousStatus,
+                $newStatus,
+                $previousCost,
+                $newCost
+            );
+
+            if ($delta !== 0.0) {
+                $itinerary->update([
+                    'total_cost' => max(0, (float) $itinerary->total_cost + $delta),
+                ]);
+            }
+        });
+
+        $itinerary->loadMissing(['request', 'days.items.destination', 'days.items.legDeparting']);
+
+        return $itinerary;
     }
 }
