@@ -26,6 +26,10 @@ return [
         'model' => env('GEMINI_MODEL'),
     ],
 
+    'places' => [
+        'lock_block_seconds' => (int) env('PLACES_LOCK_BLOCK_SECONDS', 15),
+    ],
+
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],

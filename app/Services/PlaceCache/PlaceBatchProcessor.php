@@ -16,7 +16,8 @@ class PlaceBatchProcessor
 
     /**
      * Process batch classification (UMKM + price tier) and update destinations.
-     * This consolidates the duplicate logic from fetchCityDiverseDestinations and fetchPlaceDetail.
+     *
+     * @param  array<int, array<string, mixed>>  $places
      */
     public function processBatchClassification(array $places): void
     {
@@ -24,10 +25,8 @@ class PlaceBatchProcessor
             return;
         }
 
-        // Step 1: Batch classify UMKM via AI
-        $umkmResults = $this->umkmClassifier->batchClassifyUmkm($places, $this->categoryClassifier);
+        $umkmResults = $this->umkmClassifier->batchClassifyUmkm($places);
 
-        // Step 2: Resolve categories (UMKM takes precedence)
         $resolvedCategories = [];
         foreach ($places as $p) {
             $placeId = $p['id'];
@@ -39,13 +38,11 @@ class PlaceBatchProcessor
                 : $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
         }
 
-        // Step 3: Batch infer price tiers via AI
         $priceResults = $this->priceTierResolver->batchInferPriceTier($places, $resolvedCategories);
 
-        // Step 4: Update all destinations with enriched data
         foreach ($places as $p) {
             $placeId = $p['id'];
-            $category = $resolvedCategories[$placeId];
+            $category = $resolvedCategories[$placeId] ?? $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
             $priceTier = $priceResults[$placeId]
                 ?? $this->priceTierResolver->extractPriceTier($p['priceLevel'] ?? null);
 
@@ -53,24 +50,18 @@ class PlaceBatchProcessor
                 $priceTier = $this->priceTierResolver->categoryFallbackTier($category);
             }
 
+            $mapCategory = $this->categoryClassifier->resolveMapCategory(
+                $category,
+                $p['displayName']['text'] ?? '',
+                (float) ($p['rating'] ?? 0),
+                (int) ($p['userRatingCount'] ?? 0)
+            );
+
             Destination::where('place_id', $placeId)->update([
                 'category' => $category,
                 'price_tier' => $priceTier,
-                'map_category' => $this->categoryClassifier->resolveMapCategory(
-                    $category,
-                    $p['displayName']['text'] ?? '',
-                    (float) ($p['rating'] ?? 0),
-                    (int) ($p['userRatingCount'] ?? 0)
-                ),
-                'culture_points' => $this->categoryClassifier->culturePointsFor(
-                    $category,
-                    $this->categoryClassifier->resolveMapCategory(
-                        $category,
-                        $p['displayName']['text'] ?? '',
-                        (float) ($p['rating'] ?? 0),
-                        (int) ($p['userRatingCount'] ?? 0)
-                    )
-                ),
+                'map_category' => $mapCategory,
+                'culture_points' => $this->categoryClassifier->culturePointsFor($category, $mapCategory),
             ]);
         }
     }

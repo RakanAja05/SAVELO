@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services\PlaceCache;
 
+use App\Services\Gemini\GeminiBatchParser;
 use App\Services\Gemini\GeminiService;
 use Illuminate\Support\Facades\Log;
 
@@ -9,20 +12,24 @@ class UmkmClassifier
 {
     public function __construct(
         private GeminiService $gemini,
-        private PriceTierResolver $priceTierResolver,
+        private PlaceCategoryClassifier $categoryClassifier,
+        private GeminiBatchParser $batchParser,
     ) {}
 
     /**
      * Batch classify places as UMKM using Gemini.
+     *
+     * @param  array<int, array<string, mixed>>  $places
+     * @return array<string, bool|null>
      */
-    public function batchClassifyUmkm(array $places, PlaceCategoryClassifier $categoryClassifier): array
+    public function batchClassifyUmkm(array $places): array
     {
         $lines = [];
         foreach ($places as $p) {
             $placeId = $p['id'];
             $name = $p['displayName']['text'] ?? '';
             $address = $p['formattedAddress'] ?? '';
-            $category = $categoryClassifier->extractBaseCategory($p['types'] ?? []);
+            $category = $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
             $lines[] = "{$placeId} | {$name} | {$address} | {$category}";
         }
 
@@ -44,7 +51,6 @@ PROMPT;
 
         $response = $this->gemini->generate($prompt);
 
-        // Logging raw Gemini response
         Log::info('Gemini batchClassifyUmkm raw response', [
             'response' => $response,
             'places_count' => count($places),
@@ -59,6 +65,6 @@ PROMPT;
             return [];
         }
 
-        return $this->priceTierResolver->parseBatchResponse($response, 'umkm');
+        return $this->batchParser->parseBatchResponse($response, 'umkm');
     }
 }

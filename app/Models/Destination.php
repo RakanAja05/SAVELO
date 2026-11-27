@@ -46,6 +46,6 @@ class Destination extends Model
     public function isDetailFresh(): bool
     {
         return $this->detail_fetched_at !== null
-            && now()->diffInDays($this->detail_fetched_at) < 30;
+            && $this->detail_fetched_at->greaterThan(now()->subDays(30));
     }
 }

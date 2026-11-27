@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services\PlaceCache;
 
+use App\Services\Gemini\GeminiBatchParser;
 use App\Services\Gemini\GeminiService;
 use Illuminate\Support\Facades\Log;
 
@@ -9,6 +12,8 @@ class PriceTierResolver
 {
     public function __construct(
         private GeminiService $gemini,
+        private PlaceCategoryClassifier $categoryClassifier,
+        private GeminiBatchParser $batchParser,
     ) {}
 
     /**
@@ -43,10 +48,13 @@ class PriceTierResolver
 
     /**
      * Batch infer price tier using Gemini for places without Google priceLevel.
+     *
+     * @param  array<int, array<string, mixed>>  $places
+     * @param  array<string, string>  $resolvedCategories
+     * @return array<string, string|null>
      */
     public function batchInferPriceTier(array $places, array $resolvedCategories): array
     {
-        // Only classify places where Google did not provide priceLevel
         $toClassify = array_filter($places, fn ($p) => empty($p['priceLevel']));
 
         if (empty($toClassify)) {
@@ -58,7 +66,7 @@ class PriceTierResolver
             $placeId = $p['id'];
             $name = $p['displayName']['text'] ?? '';
             $address = $p['formattedAddress'] ?? '';
-            $category = $resolvedCategories[$placeId] ?? 'lainnya';
+            $category = $resolvedCategories[$placeId] ?? $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
             $lines[] = "{$placeId} | {$name} | {$address} | {$category}";
         }
 
@@ -82,7 +90,6 @@ PROMPT;
 
         $response = $this->gemini->generate($prompt);
 
-        // Logging raw Gemini response
         Log::info('Gemini batchInferPriceTier raw response', [
             'response' => $response,
             'places_count' => count($toClassify),
@@ -97,47 +104,13 @@ PROMPT;
             return [];
         }
 
-        return $this->parseBatchResponse($response, 'price');
-    }
-
-    /**
-     * Parse batch Gemini response (for price tier or UMKM classification).
-     */
-    public function parseBatchResponse(string $response, string $type): array
-    {
-        $results = [];
-        $lines = array_filter(explode("\n", trim($response)));
-
-        foreach ($lines as $line) {
-            $parts = explode('|', trim($line));
-            if (count($parts) !== 3) {
-                continue;
-            }
-
-            [$placeId, $value, $confidence] = $parts;
-            $placeId = trim($placeId);
-            $confidence = (float) trim($confidence) * 100;
-            $value = trim($value);
-
-            if ($confidence < 70) {
-                $results[$placeId] = null;
-
-                continue;
-            }
-
-            if ($type === 'umkm') {
-                $results[$placeId] = strtoupper($value) === 'Y';
-            } else {
-                $validTiers = ['free', 'budget', 'mid', 'premium', 'luxury'];
-                $results[$placeId] = in_array($value, $validTiers, true) ? $value : null;
-            }
-        }
-
-        return $results;
+        return $this->batchParser->parseBatchResponse($response, 'price');
     }
 
     /**
      * Get price range for a given tier.
+     *
+     * @return array{min: ?int, max: ?int, label: string}
      */
     public function priceTierRange(string $tier): array
     {

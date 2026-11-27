@@ -1,29 +1,26 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use App\Models\Destination;
-use App\Services\Gemini\GeminiService;
-use App\Services\PlaceCache\AddressParser;
 use App\Services\PlaceCache\GridManager;
 use App\Services\PlaceCache\PlaceBatchProcessor;
-use App\Services\PlaceCache\PlaceCategoryClassifier;
 use App\Services\PlaceCache\PlaceDestinationPersister;
 use App\Services\PlaceCache\PlaceEnricher;
-use App\Services\PlaceCache\PriceTierResolver;
 use Illuminate\Contracts\Cache\LockTimeoutException;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class PlaceCacheService
 {
-    const DETAIL_RADIUS = 3000;
+    public const DETAIL_RADIUS = 3000;
 
-    const CACHE_TTL_DAYS = 30;
+    public const CACHE_TTL_DAYS = 30;
 
-    const NEARBY_TYPES = [
+    public const NEARBY_TYPES = [
         'tourist_attraction',
         'restaurant',
         'cafe',
@@ -31,18 +28,35 @@ class PlaceCacheService
         'transit_station',
     ];
 
+    private const PLACE_FIELDS = [
+        'places.id',
+        'places.displayName',
+        'places.formattedAddress',
+        'places.addressComponents',
+        'places.location',
+        'places.rating',
+        'places.userRatingCount',
+        'places.photos',
+        'places.types',
+        'places.regularOpeningHours',
+        'places.internationalPhoneNumber',
+        'places.websiteUri',
+        'places.priceLevel',
+    ];
+
     public function __construct(
         private GooglePlacesService $google,
-        private GeminiService $gemini,
         private GridManager $gridManager,
-        private AddressParser $addressParser,
-        private PlaceCategoryClassifier $categoryClassifier,
-        private PriceTierResolver $priceTierResolver,
         private PlaceEnricher $placeEnricher,
         private PlaceBatchProcessor $batchProcessor,
         private PlaceDestinationPersister $persister,
     ) {}
 
+    /**
+     * Get cached destinations for a city, fetching from Google Places when stale or insufficient.
+     *
+     * @return array<string, mixed>
+     */
     public function getCityPlaces(string $cityName): array
     {
         $slug = Str::slug($cityName);
@@ -58,8 +72,9 @@ class PlaceCacheService
         }
 
         try {
-            return Cache::lock("city_fetch_{$slug}", 60)->block(15, function () use ($cityName, $cacheKey) {
+            $blockSeconds = (int) config('services.places.lock_block_seconds', 15);
 
+            return Cache::lock("city_fetch_{$slug}", 60)->block($blockSeconds, function () use ($cityName, $cacheKey) {
                 $placeCount = $this->persister->countCityDestinations($cityName);
                 if (Cache::has($cacheKey) && $placeCount >= 20) {
                     return [
@@ -85,6 +100,11 @@ class PlaceCacheService
         }
     }
 
+    /**
+     * Get full detail for a destination along with nearby places within 3km.
+     *
+     * @return array<string, mixed>
+     */
     public function getPlaceDetail(string $placeId): array
     {
         $destination = Destination::where('place_id', $placeId)->first();
@@ -96,33 +116,7 @@ class PlaceCacheService
                 return ['error' => 'Tempat tidak ditemukan.', 'code' => 404];
             }
 
-            $addressComponents = $googleDetail['addressComponents'] ?? [];
-
-            $destination = Destination::create([
-                'place_id' => $googleDetail['id'],
-                'area_id' => null,
-                'name' => $googleDetail['displayName']['text'] ?? '',
-                'slug' => Str::slug($googleDetail['displayName']['text'] ?? $googleDetail['id']),
-                'country_code' => $this->addressParser->extractCountryCode($addressComponents),
-                'city' => $this->addressParser->extractCity($addressComponents),
-                'lat' => $googleDetail['location']['latitude'] ?? 0,
-                'lng' => $googleDetail['location']['longitude'] ?? 0,
-                'category' => $this->categoryClassifier->extractCategory(
-                    $googleDetail['types'] ?? [],
-                    $googleDetail['displayName']['text'] ?? '',
-                    $googleDetail['formattedAddress'] ?? ''
-                ),
-                'culture_points' => $this->categoryClassifier->culturePointsFor(
-                    $this->categoryClassifier->extractCategory(
-                        $googleDetail['types'] ?? [],
-                        $googleDetail['displayName']['text'] ?? '',
-                        $googleDetail['formattedAddress'] ?? ''
-                    )
-                ),
-                'price_tier' => $this->priceTierResolver->extractPriceTier($googleDetail['priceLevel'] ?? null),
-                'address' => $googleDetail['formattedAddress'] ?? null,
-                'cached_at' => now(),
-            ]);
+            $destination = $this->persister->createFromGoogleDetail($googleDetail);
         }
 
         $area = $destination->area;
@@ -134,10 +128,13 @@ class PlaceCacheService
         return [
             'from_cache' => true,
             'destination' => $destination,
-            'nearby' => $this->getNearbyFromDb($destination),
+            'nearby' => $this->persister->getNearbyFromDb($destination),
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function fetchCityDiverseDestinations(string $cityName): array
     {
         try {
@@ -152,13 +149,7 @@ class PlaceCacheService
 
             foreach ($searchQueries as $query) {
                 $result = $this->google->searchByText($query, [
-                    'fields' => implode(',', [
-                        'places.id', 'places.displayName', 'places.formattedAddress',
-                        'places.addressComponents', 'places.location', 'places.rating',
-                        'places.userRatingCount', 'places.photos', 'places.types',
-                        'places.regularOpeningHours', 'places.internationalPhoneNumber',
-                        'places.websiteUri', 'places.priceLevel',
-                    ]),
+                    'fields' => implode(',', self::PLACE_FIELDS),
                     'limit' => 15,
                 ]);
 
@@ -173,12 +164,10 @@ class PlaceCacheService
 
             $uniquePlaces = collect($allFetchedPlaces)->unique('id')->values()->all();
 
-            // Initial upsert of all places
             foreach ($uniquePlaces as $p) {
-                $this->persister->upsertFromGooglePlace($p, $cityName, self::DETAIL_RADIUS);
+                $this->persister->upsertCityPlace($p, $cityName);
             }
 
-            // Batch process UMKM classification and price tier enrichment
             $this->batchProcessor->processBatchClassification($uniquePlaces);
 
             return [
@@ -191,27 +180,36 @@ class PlaceCacheService
                 'error' => $e->getMessage(),
             ]);
 
-            return [
-                'places' => $this->persister->getCityDestinations($cityName),
-                'error' => 'Gagal mengambil data dari Google Places API',
-            ];
+            return ['places' => [], 'error' => 'Gagal mengambil data, coba lagi nanti.'];
         }
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function fetchPlaceDetail(Destination $destination): array
     {
         try {
-            $result = $this->google->getNearby(
-                $destination->lat,
-                $destination->lng,
-                self::DETAIL_RADIUS,
-                self::NEARBY_TYPES
+            $result = $this->google->searchNearby(
+                (float) $destination->lat,
+                (float) $destination->lng,
+                [
+                    'types' => self::NEARBY_TYPES,
+                    'radius' => self::DETAIL_RADIUS,
+                    'limit' => 20,
+                    'fields' => implode(',', self::PLACE_FIELDS),
+                ]
             );
 
-            $area = $this->gridManager->ensureDetailArea($destination->lat, $destination->lng);
+            $area = $this->gridManager->ensureDetailArea((float) $destination->lat, (float) $destination->lng);
 
-            // Batch process UMKM classification and price tier enrichment
-            $this->batchProcessor->processBatchClassification($result['places'] ?? []);
+            $nearbyPlaces = $result['places'] ?? [];
+
+            foreach ($nearbyPlaces as $p) {
+                $this->persister->upsertNearbyPlace($p, $area, (string) $destination->city);
+            }
+
+            $this->batchProcessor->processBatchClassification($nearbyPlaces);
 
             $microstory = $destination->ai_microstory;
 
@@ -237,9 +235,8 @@ class PlaceCacheService
             return [
                 'from_cache' => false,
                 'destination' => $destination->fresh(),
-                'nearby' => $this->getNearbyFromDb($destination),
+                'nearby' => $this->persister->getNearbyFromDb($destination),
             ];
-
         } catch (\Exception $e) {
             Log::error('PlaceCacheService: fetchPlaceDetail failed', [
                 'place_id' => $destination->place_id,
@@ -250,26 +247,8 @@ class PlaceCacheService
                 'from_cache' => true,
                 'stale' => true,
                 'destination' => $destination,
-                'nearby' => $this->getNearbyFromDb($destination),
+                'nearby' => $this->persister->getNearbyFromDb($destination),
             ];
         }
-    }
-
-    private function getNearbyFromDb(Destination $destination): Collection
-    {
-        return Destination::selectRaw('*, (
-                6371000 * acos(
-                    cos(radians(?)) * cos(radians(lat)) *
-                    cos(radians(lng) - radians(?)) +
-                    sin(radians(?)) * sin(radians(lat))
-                )
-            ) AS distance',
-            [$destination->lat, $destination->lng, $destination->lat]
-        )
-            ->where('id', '!=', $destination->id)
-            ->having('distance', '<=', self::DETAIL_RADIUS)
-            ->orderBy('distance')
-            ->limit(20)
-            ->get();
     }
 }

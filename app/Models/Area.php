@@ -27,6 +27,6 @@ class Area extends Model
     public function isFresh(): bool
     {
         return $this->cached_at !== null
-            && now()->diffInDays($this->cached_at) < 30;
+            && $this->cached_at->greaterThan(now()->subDays(30));
     }
 }
