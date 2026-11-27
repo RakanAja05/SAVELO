@@ -12,8 +12,8 @@ class AreaFactory extends Factory
     public function definition(): array
     {
         return [
-            'grid_lat' => $this->faker->numberBetween(-400, -300),
-            'grid_lng' => $this->faker->numberBetween(5300, 5700),
+            'grid_lat' => $this->faker->unique()->numberBetween(-90000, 90000),
+            'grid_lng' => $this->faker->numberBetween(-180000, 180000),
             'radius' => 3000,
             'cached_at' => now(),
         ];
