@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Area extends Model
 {
+    use HasFactory;
+
     protected $fillable = ['grid_lat', 'grid_lng', 'radius', 'cached_at'];
 
     protected $casts = [
@@ -24,6 +27,6 @@ class Area extends Model
     public function isFresh(): bool
     {
         return $this->cached_at !== null
-            && now()->diffInDays($this->cached_at) < 30;
+            && $this->cached_at->greaterThan(now()->subDays(30));
     }
 }

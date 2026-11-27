@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Destination;
 
 use App\Http\Controllers\Controller;
+use App\Services\PlaceCache\PriceTierResolver;
 use App\Services\PlaceCacheService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -10,7 +11,10 @@ use Illuminate\Http\Request;
 
 class DestinationController extends Controller
 {
-    public function __construct(private PlaceCacheService $cache) {}
+    public function __construct(
+        private PlaceCacheService $cache,
+        private PriceTierResolver $priceTierResolver
+    ) {}
 
     /**
      * GET /api/destinations?city=Yogyakarta
@@ -150,7 +154,7 @@ class DestinationController extends Controller
             'rating' => $destination->rating,
             'user_rating_count' => $destination->user_rating_count,
             'price_tier' => $destination->price_tier,
-            'price_range' => PlaceCacheService::priceTierRange($destination->price_tier),
+            'price_range' => $this->priceTierResolver->priceTierRange($destination->price_tier),
             'photos' => $destination->photos ?? [],
         ];
 

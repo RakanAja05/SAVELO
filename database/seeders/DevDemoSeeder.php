@@ -2,16 +2,15 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use App\Models\Destination;
-use App\Models\ItineraryRequest;
 use App\Models\Itinerary;
 use App\Models\ItineraryDay;
 use App\Models\ItineraryItem;
 use App\Models\ItineraryLeg;
+use App\Models\ItineraryRequest;
 use App\Models\TransportMode;
+use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Arr;
 
 class DevDemoSeeder extends Seeder
 {

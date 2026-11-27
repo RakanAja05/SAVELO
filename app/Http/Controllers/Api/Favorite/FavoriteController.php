@@ -5,14 +5,16 @@ namespace App\Http\Controllers\Api\Favorite;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Favorite\StoreFavoriteRequest;
 use App\Models\Destination;
-use App\Services\PlaceCacheService;
+use App\Services\PlaceCache\PriceTierResolver;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class FavoriteController extends Controller
 {
-    public function __construct(private PlaceCacheService $cache) {}
+    public function __construct(
+        private PriceTierResolver $priceTierResolver
+    ) {}
 
     /**
      * GET /api/favorites
@@ -69,7 +71,7 @@ class FavoriteController extends Controller
             'rating' => $destination->rating,
             'user_rating_count' => $destination->user_rating_count,
             'price_tier' => $destination->price_tier,
-            'price_range' => PlaceCacheService::priceTierRange($destination->price_tier),
+            'price_range' => $this->priceTierResolver->priceTierRange($destination->price_tier),
             'photos' => $destination->photos ?? [],
         ];
     }
