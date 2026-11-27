@@ -12,14 +12,9 @@ use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
-beforeEach(function () {
-    Http::preventStrayRequests();
-});
-
 test('getCityPlaces returns cached data when available and place count is sufficient', function () {
     $city = 'Yogyakarta';
 
-    // Create 25 destinations
     for ($i = 0; $i < 25; $i++) {
         Destination::factory()->create([
             'city' => $city,
@@ -42,7 +37,6 @@ test('getCityPlaces returns cached data when available and place count is suffic
 test('getCityPlaces fetches from Google when cache is empty', function () {
     $city = 'Bandung';
 
-    // Mock Google Places API responses
     Http::fake([
         '*/places:searchText*' => Http::sequence()
             ->push(['places' => [
@@ -64,10 +58,6 @@ test('getCityPlaces fetches from Google when cache is empty', function () {
             ->push(['places' => []], 200)
             ->push(['places' => []], 200)
             ->push(['places' => []], 200),
-    ]);
-
-    // Mock Gemini for UMKM classification
-    Http::fake([
         '*/models/*:generateContent*' => Http::response([
             'candidates' => [
                 ['content' => ['parts' => [['text' => 'place_1|N|0.95']]], 'finishReason' => 'STOP'],
@@ -82,15 +72,36 @@ test('getCityPlaces fetches from Google when cache is empty', function () {
         ->toHaveKey('from_cache', false)
         ->toHaveKey('places')
         ->and($result['places']->count())->toBeGreaterThan(0);
+
+    $this->assertDatabaseHas('areas', [
+        'grid_lat' => (int) floor(-6.9024 / 0.02),
+        'grid_lng' => (int) floor(107.6186 / 0.02),
+    ]);
+});
+
+test('getCityPlaces returns standardized error message when Google throws an exception', function () {
+    Http::fake([
+        '*/places:searchText*' => function () {
+            throw new RuntimeException('Connection failed');
+        },
+    ]);
+
+    $service = app(PlaceCacheService::class);
+    $result = $service->getCityPlaces('Semarang');
+
+    expect($result)
+        ->toBe([
+            'places' => [],
+            'error' => 'Gagal mengambil data, coba lagi nanti.',
+        ]);
 });
 
 test('getCityPlaces returns stale data when lock times out', function () {
+    config(['services.places.lock_block_seconds' => 1]);
     $city = 'Surabaya';
 
-    // Create minimal data
     Destination::factory()->count(5)->create(['city' => $city]);
 
-    // Acquire the lock to simulate another process
     $lock = Cache::lock('city_fetch_surabaya', 60);
     $lock->get();
 
@@ -105,12 +116,7 @@ test('getCityPlaces returns stale data when lock times out', function () {
     $lock->release();
 });
 
-test('getPlaceDetail returns cached detail when fresh', function () {
-    // Skip on SQLite - getNearbyFromDb uses trigonometric SQL functions
-    if (config('database.default') === 'sqlite') {
-        $this->markTestSkipped('SQLite does not support trigonometric functions');
-    }
-
+test('getPlaceDetail returns cached detail and nearby places when area is fresh', function () {
     $area = Area::factory()->create([
         'cached_at' => now(),
     ]);
@@ -118,7 +124,16 @@ test('getPlaceDetail returns cached detail when fresh', function () {
     $destination = Destination::factory()->create([
         'place_id' => 'cached_place',
         'area_id' => $area->id,
+        'lat' => -6.9024,
+        'lng' => 107.6186,
         'detail_fetched_at' => now(),
+    ]);
+
+    Destination::factory()->create([
+        'place_id' => 'nearby_cached_place',
+        'area_id' => $area->id,
+        'lat' => -6.9026,
+        'lng' => 107.6188,
     ]);
 
     $service = app(PlaceCacheService::class);
@@ -127,30 +142,27 @@ test('getPlaceDetail returns cached detail when fresh', function () {
     expect($result)
         ->toHaveKey('from_cache', true)
         ->toHaveKey('destination')
-        ->and($result['destination']->place_id)->toBe('cached_place');
+        ->and($result['destination']->place_id)->toBe('cached_place')
+        ->and($result['nearby'])->toHaveCount(1)
+        ->and($result['nearby']->first()->place_id)->toBe('nearby_cached_place');
 });
 
-test('getPlaceDetail fetches from Google when detail is stale', function () {
-    // Skip on SQLite - getNearbyFromDb uses trigonometric SQL functions
-    if (config('database.default') === 'sqlite') {
-        $this->markTestSkipped('SQLite does not support trigonometric functions');
-    }
-
+test('getPlaceDetail fetches nearby places, updates area cache timestamp, and persists nearby results when stale', function () {
     $destination = Destination::factory()->create([
         'place_id' => 'stale_place',
         'lat' => -6.9024,
         'lng' => 107.6186,
         'city' => 'Bandung',
-        'detail_fetched_at' => now()->subDays(40), // Stale
+        'area_id' => null,
+        'detail_fetched_at' => now()->subDays(40),
     ]);
 
-    // Mock Google Places nearby search
     Http::fake([
         '*/places:searchNearby*' => Http::response([
             'places' => [
                 [
                     'id' => 'nearby_1',
-                    'displayName' => ['text' => 'Nearby Place'],
+                    'displayName' => ['text' => 'Nearby Warung'],
                     'formattedAddress' => 'Jl. Test',
                     'addressComponents' => [
                         ['types' => ['locality'], 'longText' => 'Bandung'],
@@ -166,7 +178,12 @@ test('getPlaceDetail fetches from Google when detail is stale', function () {
         '*/models/*:generateContent*' => Http::sequence()
             ->push([
                 'candidates' => [
-                    ['content' => ['parts' => [['text' => 'nearby_1|N|0.90']]], 'finishReason' => 'STOP'],
+                    ['content' => ['parts' => [['text' => 'nearby_1|Y|0.90']]], 'finishReason' => 'STOP'],
+                ],
+            ], 200)
+            ->push([
+                'candidates' => [
+                    ['content' => ['parts' => [['text' => 'nearby_1|budget|0.88']]], 'finishReason' => 'STOP'],
                 ],
             ], 200)
             ->push([
@@ -182,17 +199,15 @@ test('getPlaceDetail fetches from Google when detail is stale', function () {
     expect($result)
         ->toHaveKey('from_cache', false)
         ->toHaveKey('destination')
-        ->and($result['destination']->detail_fetched_at)->not->toBeNull();
+        ->and($result['destination']->detail_fetched_at)->not->toBeNull()
+        ->and($result['destination']->ai_microstory)->toBe('Test microstory.')
+        ->and($result['destination']->area?->isFresh())->toBeTrue()
+        ->and($result['nearby'])->toHaveCount(1)
+        ->and($result['nearby']->first()->place_id)->toBe('nearby_1')
+        ->and($result['nearby']->first()->category)->toBe('umkm');
 });
 
 test('getPlaceDetail creates new destination from Google when not in DB', function () {
-    // Skip this test on SQLite because it uses unsupported SQL functions (acos, sin, cos)
-    // in getNearbyFromDb() which is called during fetchPlaceDetail
-    if (config('database.default') === 'sqlite') {
-        $this->markTestSkipped('SQLite does not support trigonometric functions used in haversine distance calculation');
-    }
-
-    // Mock Google Places detail endpoint
     Http::fake([
         '*/places/new_place*' => Http::response([
             'id' => 'new_place',
@@ -208,7 +223,7 @@ test('getPlaceDetail creates new destination from Google when not in DB', functi
         '*/places:searchNearby*' => Http::response(['places' => []], 200),
         '*/models/*:generateContent*' => Http::response([
             'candidates' => [
-                ['content' => ['parts' => [['text' => '']]], 'finishReason' => 'STOP'],
+                ['content' => ['parts' => [['text' => 'Cerita singkat destinasi baru.']]], 'finishReason' => 'STOP'],
             ],
         ], 200),
     ]);
@@ -219,7 +234,8 @@ test('getPlaceDetail creates new destination from Google when not in DB', functi
     expect($result)
         ->toHaveKey('destination')
         ->and($result['destination']->place_id)->toBe('new_place')
-        ->and($result['destination']->name)->toBe('New Place');
+        ->and($result['destination']->name)->toBe('New Place')
+        ->and($result['destination']->ai_microstory)->toBe('Cerita singkat destinasi baru.');
 });
 
 test('getPlaceDetail returns error when place not found', function () {

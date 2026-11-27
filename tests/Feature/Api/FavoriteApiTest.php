@@ -74,6 +74,18 @@ test('POST /api/favorites returns 200 when adding destination to favorites', fun
     ]);
 });
 
+test('POST /api/favorites returns 422 when destination_id is missing or invalid', function () {
+    $response = $this->actingAs($this->user)->postJson('/api/favorites', [
+        'destination_id' => 999999,
+    ]);
+
+    $response->assertStatus(422)
+        ->assertJson([
+            'status' => 'error',
+            'message' => 'Validation failed.',
+        ]);
+});
+
 test('DELETE /api/favorites/{destinationId} returns 200 when removing favorite', function () {
     $destination = Destination::factory()->create();
     $this->user->favorites()->attach($destination->id);
@@ -91,8 +103,8 @@ test('DELETE /api/favorites/{destinationId} returns 200 when removing favorite',
     ]);
 });
 
-test('GET /api/favorites requires authentication', function () {
-    $response = $this->getJson('/api/favorites');
-
-    $response->assertStatus(401);
+test('favorites endpoints require authentication', function () {
+    $this->getJson('/api/favorites')->assertStatus(401);
+    $this->postJson('/api/favorites', ['destination_id' => 1])->assertStatus(401);
+    $this->deleteJson('/api/favorites/1')->assertStatus(401);
 });

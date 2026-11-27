@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\Destination;
 use App\Models\Itinerary;
 use App\Models\ItineraryRequest;
+use App\Models\TransportMode;
 use App\Models\User;
 use App\Services\ItineraryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,23 +14,16 @@ use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
-beforeEach(function () {
-    Http::preventStrayRequests();
-});
-
 test('generate creates itinerary with three variants when successful', function () {
     $user = User::factory()->create();
 
-    // Create destinations for the city and mark cache as synced
     $destinations = Destination::factory()->count(30)->create([
         'city' => 'Bandung',
         'rating' => 4.5,
     ]);
 
-    // Mark city as cached (so it doesn't try to fetch from Google)
     Cache::put('city_data_synced_bandung', true, now()->addDays(30));
 
-    // Mock Gemini response
     $geminiResponse = [
         'hemat' => [
             'title' => 'Hemat Budget',
@@ -88,6 +82,7 @@ test('generate creates itinerary with three variants when successful', function 
                 'finishReason' => 'STOP',
             ]],
         ], 200),
+        '*maps.googleapis.com/maps/api/distancematrix/json*' => Http::response(['status' => 'ZERO_RESULTS'], 200),
     ]);
 
     $service = app(ItineraryService::class);
@@ -111,6 +106,10 @@ test('generate creates itinerary with three variants when successful', function 
 });
 
 test('generate returns error when city has no destinations', function () {
+    Http::fake([
+        '*/places:searchText*' => Http::response(['places' => []], 200),
+    ]);
+
     $user = User::factory()->create();
 
     $service = app(ItineraryService::class);
@@ -130,13 +129,11 @@ test('generate returns error when city has no destinations', function () {
 test('generate returns error when Gemini fails', function () {
     $user = User::factory()->create();
 
-    // Create destinations with unique areas to avoid UNIQUE constraint violations
     Destination::factory()->count(30)->create([
         'city' => 'Bandung',
-        'area_id' => null, // Let factory create unique areas per destination
+        'area_id' => null,
     ]);
 
-    // Mark city as cached
     Cache::put('city_data_synced_bandung', true, now()->addDays(30));
 
     Http::fake([
@@ -160,7 +157,7 @@ test('generate returns error when Gemini fails', function () {
 test('getRequestHistory returns itinerary for user', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->completed()->create(['user_id' => $user->id]);
-    $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
+    Itinerary::factory()->create(['request_id' => $request->id]);
 
     $service = app(ItineraryService::class);
     $result = $service->getRequestHistory($user, $request->id);
@@ -179,11 +176,11 @@ test('getRequestHistory returns error for non-existent request', function () {
     $result = $service->getRequestHistory($user, 999);
 
     expect($result)->toHaveKey('error')
-        ->and($result['error'])->toBe('Request tidak ditemukan.')
+        ->and($result['error'])->toBe('Itinerary tidak ditemukan.')
         ->and($result['code'])->toBe(404);
 });
 
-test('getItineraryDetail returns detailed itinerary', function () {
+test('getItineraryDetail returns request and detailed itinerary', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
     $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
@@ -193,15 +190,38 @@ test('getItineraryDetail returns detailed itinerary', function () {
 
     expect($result)
         ->toHaveKey('data')
-        ->and($result['data'])->toHaveKey('id')
-        ->and($result['data']['id'])->toBe($itinerary->id);
+        ->and($result['data'])->toHaveKey('request')
+        ->and($result['data'])->toHaveKey('itinerary')
+        ->and($result['data']['itinerary']['id'])->toBe($itinerary->id);
 });
 
-test('updateItem swaps destination and recalculates cost', function () {
+test('getItineraryDay returns day plan and 404 message when day is missing', function () {
+    $user = User::factory()->create();
+    $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
+    $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
+    $itinerary->days()->create(['day_number' => 1, 'estimated_cost' => 0]);
+
+    $service = app(ItineraryService::class);
+
+    $found = $service->getItineraryDay($user, $itinerary->id, 1);
+    expect($found['data'])->toHaveKeys(['request', 'itinerary', 'day']);
+
+    $missing = $service->getItineraryDay($user, $itinerary->id, 99);
+    expect($missing)->toBe([
+        'error' => 'Rencana hari tidak ditemukan.',
+        'code' => 404,
+    ]);
+});
+
+test('updateItem swaps destination, supports status update, and recalculates cost', function () {
+    Http::fake([
+        '*maps.googleapis.com/maps/api/distancematrix/json*' => Http::response(['status' => 'ZERO_RESULTS'], 200),
+    ]);
+
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id, 'num_people' => 2]);
-    $itinerary = Itinerary::factory()->create(['request_id' => $request->id, 'total_cost' => 100000]);
-    $day = $itinerary->days()->create(['day_number' => 1, 'estimated_cost' => 100000]);
+    $itinerary = Itinerary::factory()->create(['request_id' => $request->id, 'total_cost' => 20000]);
+    $day = $itinerary->days()->create(['day_number' => 1, 'estimated_cost' => 20000]);
 
     $destination1 = Destination::factory()->create(['price_tier' => 'budget']);
     $destination2 = Destination::factory()->create(['price_tier' => 'mid']);
@@ -220,13 +240,18 @@ test('updateItem swaps destination and recalculates cost', function () {
         'place_id' => $destination2->place_id,
     ]);
 
-    expect($result)->toHaveKey('data');
+    expect($result['data'])->toHaveKeys(['request', 'itinerary']);
+    expect($item->fresh()->destination_id)->toBe($destination2->id);
+    expect((float) $itinerary->fresh()->total_cost)->toBe(100000.0);
 
-    $item->refresh();
-    expect($item->destination_id)->toBe($destination2->id);
+    $service->updateItem($user, $itinerary->id, $item->id, [
+        'status' => 'completed',
+    ]);
+    expect($item->fresh()->status)->toBe('completed');
+    expect((float) $itinerary->fresh()->total_cost)->toBe(0.0);
 });
 
-test('checkLocation returns distance and radius check', function () {
+test('checkLocation returns distance and 100m radius check', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
     $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
@@ -250,15 +275,14 @@ test('checkLocation returns distance and radius check', function () {
 
     $service = app(ItineraryService::class);
 
-    // Close location (within 100m)
-    $result = $service->checkLocation($user, $itinerary->id, $item->id, -6.9024, 107.6186);
+    $nearResult = $service->checkLocation($user, $itinerary->id, $item->id, -6.9024, 107.6186);
+    expect($nearResult['data']['is_within_radius'])->toBeTrue();
 
-    expect($result)
-        ->toHaveKey('data')
-        ->and($result['data']['is_within_radius'])->toBeTrue();
+    $farResult = $service->checkLocation($user, $itinerary->id, $item->id, -6.9045, 107.6186);
+    expect($farResult['data']['is_within_radius'])->toBeFalse();
 });
 
-test('checkinPreview returns transport modes and culture points', function () {
+test('checkinPreview returns transport modes with co2_per_km and culture points', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
     $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
@@ -277,23 +301,32 @@ test('checkinPreview returns transport modes and culture points', function () {
         'cost_estimate' => 50000,
     ]);
 
+    TransportMode::factory()->create([
+        'mode' => 'walk',
+        'label' => 'Jalan Kaki',
+        'eco_points_rate' => 10,
+        'co2_per_km' => 0,
+    ]);
+
     $service = app(ItineraryService::class);
     $result = $service->checkinPreview($user, $itinerary->id, $item->id);
 
     expect($result)
         ->toHaveKey('data')
-        ->and($result['data'])->toHaveKey('destination')
-        ->and($result['data'])->toHaveKey('transport_modes');
+        ->and($result['data'])->toHaveKeys(['destination', 'leg_distance_km', 'transport_modes'])
+        ->and($result['data']['transport_modes'][0])->toHaveKey('co2_per_km');
 });
 
-test('generateSmartSwaps method does not exist and causes error', function () {
-    // Pin current broken behavior: the method doesn't exist
+test('generateSmartSwaps returns clean 501 response', function () {
     $user = User::factory()->create();
     $request = ItineraryRequest::factory()->create(['user_id' => $user->id]);
     $itinerary = Itinerary::factory()->create(['request_id' => $request->id]);
 
     $service = app(ItineraryService::class);
+    $result = $service->generateSmartSwaps($itinerary, 1);
 
-    expect(fn () => $service->generateSmartSwaps($itinerary, 1))
-        ->toThrow(Error::class);
+    expect($result)->toBe([
+        'error' => 'Smart swaps belum diimplementasikan pada prototipe ini.',
+        'code' => 501,
+    ]);
 });
