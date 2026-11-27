@@ -2,15 +2,15 @@
 
 namespace App\Services;
 
-use App\Models\Area;
 use App\Models\Destination;
 use App\Services\Gemini\GeminiService;
 use App\Services\PlaceCache\AddressParser;
 use App\Services\PlaceCache\GridManager;
+use App\Services\PlaceCache\PlaceBatchProcessor;
 use App\Services\PlaceCache\PlaceCategoryClassifier;
+use App\Services\PlaceCache\PlaceDestinationPersister;
 use App\Services\PlaceCache\PlaceEnricher;
 use App\Services\PlaceCache\PriceTierResolver;
-use App\Services\PlaceCache\UmkmClassifier;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -38,8 +38,9 @@ class PlaceCacheService
         private AddressParser $addressParser,
         private PlaceCategoryClassifier $categoryClassifier,
         private PriceTierResolver $priceTierResolver,
-        private UmkmClassifier $umkmClassifier,
         private PlaceEnricher $placeEnricher,
+        private PlaceBatchProcessor $batchProcessor,
+        private PlaceDestinationPersister $persister,
     ) {}
 
     public function getCityPlaces(string $cityName): array
@@ -47,23 +48,23 @@ class PlaceCacheService
         $slug = Str::slug($cityName);
         $cacheKey = "city_data_synced_{$slug}";
 
-        $placeCount = Destination::where('city', $cityName)->count();
+        $placeCount = $this->persister->countCityDestinations($cityName);
 
         if (Cache::has($cacheKey) && $placeCount >= 20) {
             return [
                 'from_cache' => true,
-                'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
+                'places' => $this->persister->getCityDestinations($cityName),
             ];
         }
 
         try {
             return Cache::lock("city_fetch_{$slug}", 60)->block(15, function () use ($cityName, $cacheKey) {
 
-                $placeCount = Destination::where('city', $cityName)->count();
+                $placeCount = $this->persister->countCityDestinations($cityName);
                 if (Cache::has($cacheKey) && $placeCount >= 20) {
                     return [
                         'from_cache' => true,
-                        'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
+                        'places' => $this->persister->getCityDestinations($cityName),
                     ];
                 }
 
@@ -79,7 +80,7 @@ class PlaceCacheService
             return [
                 'from_cache' => true,
                 'stale' => true,
-                'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
+                'places' => $this->persister->getCityDestinations($cityName),
             ];
         }
     }
@@ -172,101 +173,17 @@ class PlaceCacheService
 
             $uniquePlaces = collect($allFetchedPlaces)->unique('id')->values()->all();
 
+            // Initial upsert of all places
             foreach ($uniquePlaces as $p) {
-                $lat = $p['location']['latitude'];
-                $lng = $p['location']['longitude'];
-                $grid = $this->gridManager->latLngToGrid($lat, $lng);
-
-                $area = Area::updateOrCreate(
-                    ['grid_lat' => $grid['grid_lat'], 'grid_lng' => $grid['grid_lng']],
-                    ['radius' => self::DETAIL_RADIUS]
-                );
-
-                Destination::updateOrCreate(
-                    ['place_id' => $p['id']],
-                    [
-                        'area_id' => $area->id,
-                        'name' => $p['displayName']['text'] ?? '',
-                        'slug' => Str::slug($p['displayName']['text'] ?? $p['id']),
-                        'country_code' => $this->addressParser->extractCountryCode($p['addressComponents'] ?? []),
-                        'city' => $cityName,
-                        'lat' => $lat,
-                        'lng' => $lng,
-                        'category' => $this->categoryClassifier->extractBaseCategory($p['types'] ?? []),
-                        'map_category' => $this->categoryClassifier->resolveMapCategory(
-                            $this->categoryClassifier->extractBaseCategory($p['types'] ?? []),
-                            $p['displayName']['text'] ?? '',
-                            (float) ($p['rating'] ?? 0),
-                            (int) ($p['userRatingCount'] ?? 0)
-                        ),
-                        'culture_points' => $this->categoryClassifier->culturePointsFor(
-                            $this->categoryClassifier->extractBaseCategory($p['types'] ?? []),
-                            $this->categoryClassifier->resolveMapCategory(
-                                $this->categoryClassifier->extractBaseCategory($p['types'] ?? []),
-                                $p['displayName']['text'] ?? '',
-                                (float) ($p['rating'] ?? 0),
-                                (int) ($p['userRatingCount'] ?? 0)
-                            )
-                        ),
-                        'rating' => $p['rating'] ?? 0,
-                        'user_rating_count' => $p['userRatingCount'] ?? 0,
-                        'price_tier' => $this->priceTierResolver->extractPriceTier($p['priceLevel'] ?? null),
-                        'address' => $p['formattedAddress'] ?? null,
-                        'opening_hours' => $p['regularOpeningHours'] ?? null,
-                        'phone' => $p['internationalPhoneNumber'] ?? null,
-                        'official_url' => $p['websiteUri'] ?? null,
-                        'photos' => array_slice($p['photos'] ?? [], 0, 5),
-                        'cached_at' => now(),
-                    ]
-                );
+                $this->persister->upsertFromGooglePlace($p, $cityName, self::DETAIL_RADIUS);
             }
 
-            $umkmResults = $this->umkmClassifier->batchClassifyUmkm($uniquePlaces, $this->categoryClassifier);
-
-            $resolvedCategories = [];
-            foreach ($uniquePlaces as $p) {
-                $placeId = $p['id'];
-                $name = $p['displayName']['text'] ?? '';
-                $aiResult = $umkmResults[$placeId] ?? null;
-                $isUmkm = $aiResult !== null ? $aiResult : $this->categoryClassifier->classifyUmkmByRules($name);
-                $resolvedCategories[$placeId] = $isUmkm ? 'umkm' : $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
-            }
-
-            $priceResults = $this->priceTierResolver->batchInferPriceTier($uniquePlaces, $resolvedCategories);
-
-            foreach ($uniquePlaces as $p) {
-                $placeId = $p['id'];
-                $category = $resolvedCategories[$placeId];
-                $priceTier = $priceResults[$placeId] ?? $this->priceTierResolver->extractPriceTier($p['priceLevel'] ?? null);
-
-                if ($priceTier === 'unknown') {
-                    $priceTier = $this->priceTierResolver->categoryFallbackTier($category);
-                }
-
-                Destination::where('place_id', $placeId)->update([
-                    'category' => $category,
-                    'price_tier' => $priceTier,
-                    'map_category' => $this->categoryClassifier->resolveMapCategory(
-                        $category,
-                        $p['displayName']['text'] ?? '',
-                        (float) ($p['rating'] ?? 0),
-                        (int) ($p['userRatingCount'] ?? 0)
-                    ),
-                    'culture_points' => $this->categoryClassifier->culturePointsFor(
-                        $category,
-                        $this->categoryClassifier->resolveMapCategory(
-                            $category,
-                            $p['displayName']['text'] ?? '',
-                            (float) ($p['rating'] ?? 0),
-                            (int) ($p['userRatingCount'] ?? 0)
-                        )
-                    ),
-                ]);
-            }
+            // Batch process UMKM classification and price tier enrichment
+            $this->batchProcessor->processBatchClassification($uniquePlaces);
 
             return [
                 'from_cache' => false,
-                'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
+                'places' => $this->persister->getCityDestinations($cityName),
             ];
         } catch (\Exception $e) {
             Log::error('PlaceCacheService: fetchCityDiverseDestinations failed', [
@@ -275,7 +192,7 @@ class PlaceCacheService
             ]);
 
             return [
-                'places' => Destination::where('city', $cityName)->orderByDesc('rating')->get(),
+                'places' => $this->persister->getCityDestinations($cityName),
                 'error' => 'Gagal mengambil data dari Google Places API',
             ];
         }
@@ -293,52 +210,8 @@ class PlaceCacheService
 
             $area = $this->gridManager->ensureDetailArea($destination->lat, $destination->lng);
 
-            $umkmResults = $this->umkmClassifier->batchClassifyUmkm($result['places'] ?? [], $this->categoryClassifier);
-
-            $resolvedCategories = [];
-            foreach ($result['places'] ?? [] as $p) {
-                $placeId = $p['id'];
-                $name = $p['displayName']['text'] ?? '';
-                $aiResult = $umkmResults[$placeId] ?? null;
-                $isUmkm = $aiResult !== null ? $aiResult : $this->categoryClassifier->classifyUmkmByRules($name);
-                $resolvedCategories[$placeId] = $isUmkm
-                    ? 'umkm'
-                    : $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
-            }
-
-            $priceResults = $this->priceTierResolver->batchInferPriceTier($result['places'] ?? [], $resolvedCategories);
-
-            foreach ($result['places'] ?? [] as $p) {
-                $placeId = $p['id'];
-                $category = $resolvedCategories[$placeId] ?? $this->categoryClassifier->extractBaseCategory($p['types'] ?? []);
-
-                $priceTier = $priceResults[$placeId]
-                    ?? $this->priceTierResolver->extractPriceTier($p['priceLevel'] ?? null);
-
-                if ($priceTier === 'unknown') {
-                    $priceTier = $this->priceTierResolver->categoryFallbackTier($category);
-                }
-
-                Destination::where('place_id', $placeId)->update([
-                    'category' => $category,
-                    'price_tier' => $priceTier,
-                    'map_category' => $this->categoryClassifier->resolveMapCategory(
-                        $category,
-                        $p['displayName']['text'] ?? '',
-                        (float) ($p['rating'] ?? 0),
-                        (int) ($p['userRatingCount'] ?? 0)
-                    ),
-                    'culture_points' => $this->categoryClassifier->culturePointsFor(
-                        $category,
-                        $this->categoryClassifier->resolveMapCategory(
-                            $category,
-                            $p['displayName']['text'] ?? '',
-                            (float) ($p['rating'] ?? 0),
-                            (int) ($p['userRatingCount'] ?? 0)
-                        )
-                    ),
-                ]);
-            }
+            // Batch process UMKM classification and price tier enrichment
+            $this->batchProcessor->processBatchClassification($result['places'] ?? []);
 
             $microstory = $destination->ai_microstory;
 
@@ -398,10 +271,5 @@ class PlaceCacheService
             ->orderBy('distance')
             ->limit(20)
             ->get();
-    }
-
-    public function priceTierRange(string $tier): array
-    {
-        return $this->priceTierResolver->priceTierRange($tier);
     }
 }
